@@ -10,6 +10,7 @@ import {
     HiOutlineShoppingCart,
     HiOutlineCursorClick,
     HiOutlineUserGroup,
+    HiOutlineMail,
 } from 'react-icons/hi';
 import { useState } from 'react';
 
@@ -19,6 +20,7 @@ const navItems = [
     { to: '/course-interactions', icon: HiOutlineCursorClick, label: 'Course Clicks' },
     { to: '/consultations', icon: HiOutlineCalendar, label: 'Consultations' },
     { to: '/sign-ins', icon: HiOutlineUserGroup, label: 'Sign-Ins' },
+    { to: '/contact-messages', icon: HiOutlineMail, label: 'Contact Messages' },
     { to: '/blogs', icon: HiOutlineNewspaper, label: 'Blog Management' },
 ];
 

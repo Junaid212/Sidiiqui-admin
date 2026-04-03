@@ -34,12 +34,16 @@ export default function SignIns() {
         );
     }
 
+    const ebookCount = signIns.filter(s => s.source?.includes('Ebook')).length;
+    const commentCount = signIns.filter(s => s.source?.includes('Comment')).length;
+    const consultationCount = signIns.filter(s => s.source?.includes('Consultation')).length;
+
     return (
         <div className="page">
             <header className="page__header">
                 <div>
                     <h1 className="page__title">Sign-In Metrics</h1>
-                    <p className="page__subtitle">Overview of users who have signed into your platform.</p>
+                    <p className="page__subtitle">Users who signed in via Ebook purchase, Consultations, or Blog commenting.</p>
                 </div>
                 <div style={{
                     width: '48px', height: '48px', borderRadius: '12px',
@@ -50,6 +54,54 @@ export default function SignIns() {
                     <HiOutlineUserGroup />
                 </div>
             </header>
+
+            {/* Stats Row */}
+            <div style={{ display: 'flex', gap: '16px', marginBottom: '24px' }}>
+                <div style={{
+                    flex: 1, background: 'var(--bg-card)', border: '1px solid var(--border-color)',
+                    borderRadius: 'var(--radius-md)', padding: '16px 20px', textAlign: 'center'
+                }}>
+                    <div style={{ fontSize: '1.8rem', fontWeight: '800', background: 'var(--accent-gradient)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+                        {signIns.length}
+                    </div>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '1px', marginTop: '4px' }}>
+                        Total Sign-Ins
+                    </div>
+                </div>
+                <div style={{
+                    flex: 1, background: 'var(--bg-card)', border: '1px solid var(--border-color)',
+                    borderRadius: 'var(--radius-md)', padding: '16px 20px', textAlign: 'center'
+                }}>
+                    <div style={{ fontSize: '1.8rem', fontWeight: '800', color: '#f59e0b' }}>
+                        {consultationCount}
+                    </div>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '1px', marginTop: '4px' }}>
+                        📅 Consultations
+                    </div>
+                </div>
+                <div style={{
+                    flex: 1, background: 'var(--bg-card)', border: '1px solid var(--border-color)',
+                    borderRadius: 'var(--radius-md)', padding: '16px 20px', textAlign: 'center'
+                }}>
+                    <div style={{ fontSize: '1.8rem', fontWeight: '800', color: '#10b981' }}>
+                        {ebookCount}
+                    </div>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '1px', marginTop: '4px' }}>
+                        📚 Ebook Purchases
+                    </div>
+                </div>
+                <div style={{
+                    flex: 1, background: 'var(--bg-card)', border: '1px solid var(--border-color)',
+                    borderRadius: 'var(--radius-md)', padding: '16px 20px', textAlign: 'center'
+                }}>
+                    <div style={{ fontSize: '1.8rem', fontWeight: '800', color: '#818cf8' }}>
+                        {commentCount}
+                    </div>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '1px', marginTop: '4px' }}>
+                        💬 Blog Comments
+                    </div>
+                </div>
+            </div>
 
             <div className="card">
                 <SignInsTable signIns={signIns} />

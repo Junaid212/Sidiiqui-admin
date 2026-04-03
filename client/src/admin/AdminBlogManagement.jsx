@@ -1,25 +1,25 @@
 import { useState, useEffect } from 'react';
-import { apiRequest } from '../config/api';
+import { fetchBlogs, createBlog, updateBlog, deleteBlog, uploadCoverImage } from '../services/blogService';
 import BlogList from '../components/Blog/BlogList';
 import BlogForm from '../components/Blog/BlogForm';
 import toast from 'react-hot-toast';
 
-export default function BlogManagement() {
+export default function AdminBlogManagement() {
     const [blogs, setBlogs] = useState([]);
     const [loading, setLoading] = useState(true);
     const [showForm, setShowForm] = useState(false);
     const [editingBlog, setEditingBlog] = useState(null);
 
     useEffect(() => {
-        fetchBlogs();
+        loadBlogs();
     }, []);
 
-    async function fetchBlogs() {
+    async function loadBlogs() {
         try {
-            const data = await apiRequest('/blogs');
-            setBlogs(data.blogs || []);
+            const data = await fetchBlogs();
+            setBlogs(data || []);
         } catch (err) {
-            toast.error('Failed to load blogs');
+            toast.error('Failed to load blogs from Supabase');
             console.error(err);
         } finally {
             setLoading(false);
@@ -28,11 +28,30 @@ export default function BlogManagement() {
 
     async function handleCreate(formData) {
         try {
-            const data = await apiRequest('/blogs', {
-                method: 'POST',
-                body: formData,
-            });
-            setBlogs((prev) => [data.blog, ...prev]);
+            let image_url = null;
+            let image_path = null;
+
+            if (formData.imageFile) {
+                const uploadResult = await uploadCoverImage(formData.imageFile);
+                if (uploadResult) {
+                    image_url = uploadResult.publicUrl;
+                    image_path = uploadResult.filePath;
+                }
+            }
+
+            const newBlogData = {
+                title: formData.title,
+                content: formData.content,
+                topic: formData.topic,
+                published_date: formData.published_date,
+                title2: formData.title2,
+                content2: formData.content2,
+                image_url: image_url,
+                image_path: image_path,
+            };
+
+            const data = await createBlog(newBlogData);
+            setBlogs((prev) => [data, ...prev]);
             setShowForm(false);
             toast.success('Blog created successfully');
         } catch (err) {
@@ -42,12 +61,32 @@ export default function BlogManagement() {
 
     async function handleUpdate(formData) {
         try {
-            const data = await apiRequest(`/blogs/${editingBlog.id}`, {
-                method: 'PUT',
-                body: formData,
-            });
+            let image_url = formData.image_url; // keep existing if unchanged
+            let image_path = formData.image_path;
+
+            if (formData.imageFile) {
+                const uploadResult = await uploadCoverImage(formData.imageFile);
+                if (uploadResult) {
+                    image_url = uploadResult.publicUrl;
+                    image_path = uploadResult.filePath;
+                }
+            }
+
+            const updateData = {
+                title: formData.title,
+                content: formData.content,
+                topic: formData.topic,
+                published_date: formData.published_date,
+                title2: formData.title2,
+                content2: formData.content2,
+                image_url: image_url,
+                image_path: image_path,
+            };
+
+            const data = await updateBlog(editingBlog.id, updateData);
+
             setBlogs((prev) =>
-                prev.map((b) => (b.id === editingBlog.id ? data.blog : b))
+                prev.map((b) => (b.id === editingBlog.id ? data : b))
             );
             setEditingBlog(null);
             setShowForm(false);
@@ -61,7 +100,7 @@ export default function BlogManagement() {
         if (!window.confirm('Are you sure you want to delete this blog post?')) return;
 
         try {
-            await apiRequest(`/blogs/${id}`, { method: 'DELETE' });
+            await deleteBlog(id);
             setBlogs((prev) => prev.filter((b) => b.id !== id));
             toast.success('Blog deleted successfully');
         } catch (err) {
@@ -84,7 +123,7 @@ export default function BlogManagement() {
         return (
             <div className="page-loading">
                 <div className="spinner" />
-                <p>Loading blogs...</p>
+                <p>Loading blogs natively...</p>
             </div>
         );
     }
@@ -93,9 +132,9 @@ export default function BlogManagement() {
         <div className="page">
             <div className="page__header">
                 <div>
-                    <h1 className="page__title">Blog Management</h1>
+                    <h1 className="page__title">Admin Blog Management</h1>
                     <p className="page__subtitle">
-                        {blogs.length} blog post{blogs.length !== 1 ? 's' : ''}
+                        {blogs.length} securely managed blog post{blogs.length !== 1 ? 's' : ''}
                     </p>
                 </div>
                 <button

@@ -116,5 +116,49 @@ router.get('/blogs-count', async (req, res) => {
         return res.status(500).json({ error: 'Internal server error' });
     }
 });
+// GET /api/stats/emails-sent-count — Count of consultations where email was successfully sent
+router.get('/emails-sent-count', async (req, res) => {
+    try {
+        const { count, error } = await supabaseAdmin
+            .from('consultations')
+            .select('*', { count: 'exact', head: true })
+            .eq('email_sent', true);
+
+        if (error) {
+            // Graceful fallback if email_sent column is missing
+            if (error.message.includes('email_sent') || error.code === '42703') {
+                return res.status(200).json({ count: 0, warning: 'email_sent column missing' });
+            }
+            return res.status(500).json({ error: error.message });
+        }
+
+        return res.status(200).json({ count: count || 0 });
+    } catch (err) {
+        console.error('Emails sent count error:', err);
+        return res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// GET /api/stats/contact-messages-count
+router.get('/contact-messages-count', async (req, res) => {
+    try {
+        const { count, error } = await supabaseAdmin
+            .from('contact_messages')
+            .select('*', { count: 'exact', head: true });
+
+        if (error) {
+            // Graceful fallback if table doesn't exist yet
+            if (error.code === '42P01') {
+                return res.status(200).json({ count: 0 });
+            }
+            return res.status(500).json({ error: error.message });
+        }
+
+        return res.status(200).json({ count: count || 0 });
+    } catch (err) {
+        console.error('Contact messages count error:', err);
+        return res.status(500).json({ error: 'Internal server error' });
+    }
+});
 
 module.exports = router;

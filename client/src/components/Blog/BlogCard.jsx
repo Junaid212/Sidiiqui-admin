@@ -1,3 +1,5 @@
+import { Link } from 'react-router-dom';
+
 export default function BlogCard({ blog, onEdit, onDelete }) {
     return (
         <div className="blog-card">
@@ -13,28 +15,15 @@ export default function BlogCard({ blog, onEdit, onDelete }) {
             <div className="blog-card__body">
                 <div className="blog-card__pretitle" style={{ display: 'flex', gap: '8px', fontSize: '0.8rem', color: 'var(--primary-color)', fontWeight: '600', marginBottom: '4px' }}>
                     {blog.topic && <span>{blog.topic.toUpperCase()}</span>}
-                    {blog.topic && blog.published_date && <span>•</span>}
-                    {blog.published_date && <span>{new Date(blog.published_date).toLocaleDateString()}</span>}
                 </div>
                 <h3 className="blog-card__title">{blog.title}</h3>
                 <p className="blog-card__excerpt">
-                    {blog.content?.substring(0, 120)}
+                    {blog.content?.substring(0, 120).replace(/<[^>]+>/g, '')}
                     {blog.content?.length > 120 ? '...' : ''}
                 </p>
-                {blog.title2 && (
-                    <h4 style={{ fontSize: '1rem', marginTop: '12px', color: 'var(--text-primary)' }}>
-                        {blog.title2}
-                    </h4>
-                )}
-                {blog.content2 && (
-                    <p className="blog-card__excerpt" style={{ marginTop: '4px', fontSize: '0.85rem' }}>
-                        {blog.content2?.substring(0, 80)}
-                        {blog.content2?.length > 80 ? '...' : ''}
-                    </p>
-                )}
                 <div className="blog-card__meta">
                     <span className="blog-card__date">
-                        {new Date(blog.created_at).toLocaleDateString('en-US', {
+                        {new Date(blog.published_date || blog.created_at).toLocaleDateString('en-US', {
                             year: 'numeric',
                             month: 'short',
                             day: 'numeric',
@@ -43,6 +32,9 @@ export default function BlogCard({ blog, onEdit, onDelete }) {
                 </div>
             </div>
             <div className="blog-card__actions">
+                <Link to={`/blogs/${blog.id}/comments`} className="btn btn--outline btn--sm">
+                    Comments
+                </Link>
                 <button className="btn btn--outline btn--sm" onClick={() => onEdit(blog)}>
                     Edit
                 </button>

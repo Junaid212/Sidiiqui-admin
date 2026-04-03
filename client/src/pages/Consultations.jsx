@@ -16,7 +16,7 @@ export default function Consultations() {
             const data = await apiRequest('/consultations');
             setConsultations(data.consultations || []);
         } catch (err) {
-            toast.error('Failed to load consultations');
+            toast.error(`Failed to load: ${err.message}`);
             console.error(err);
         } finally {
             setLoading(false);

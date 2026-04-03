@@ -15,7 +15,7 @@ export default function CourseClicks() {
     const fetchClicks = async () => {
         try {
             setLoading(true);
-            const { data } = await api.get('/course-clicks-details');
+            const data = await apiRequest('/course-clicks-details');
             setClicks(data.clicks || []);
         } catch (error) {
             console.error('Error fetching course clicks:', error);

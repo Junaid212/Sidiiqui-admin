@@ -1,10 +1,14 @@
+import { supabase } from './supabase';
+
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
 
 /**
  * Make an authenticated API request to the backend
  */
 export async function apiRequest(endpoint, options = {}) {
-    const token = localStorage.getItem('access_token');
+    // Get the current session from Supabase to automatically retrieve the latest access token
+    const { data: sessionData } = await supabase.auth.getSession();
+    const token = sessionData?.session?.access_token;
 
     const config = {
         ...options,

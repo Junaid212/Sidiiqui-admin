@@ -73,25 +73,31 @@ CREATE TABLE IF NOT EXISTS public.consultations (
   name TEXT NOT NULL,
   email TEXT NOT NULL,
   phone TEXT,
-  date DATE NOT NULL,
-  time TIME NOT NULL,
-  notes TEXT,
+  selected_date DATE NOT NULL,
+  selected_time TEXT NOT NULL,
+  consultant TEXT DEFAULT 'Muhammad.Q.Siddiqui',
+  message TEXT,
   created_at TIMESTAMPTZ DEFAULT now()
 );
 
 ALTER TABLE public.consultations ENABLE ROW LEVEL SECURITY;
 
+-- Allow public inserts from main site
+CREATE POLICY "Allow public inserts" ON public.consultations FOR INSERT WITH CHECK (true);
+-- Allow service role (backend) to select/delete
+CREATE POLICY "Allow service role access" ON public.consultations FOR ALL USING (true);
+
 -- 6. Blogs table
 CREATE TABLE IF NOT EXISTS public.blogs (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  topic TEXT,
-  published_date DATE,
   title TEXT NOT NULL,
   content TEXT NOT NULL,
-  title2 TEXT,
-  content2 TEXT,
   image_url TEXT,
   image_path TEXT,
+  topic TEXT,
+  published_date DATE,
+  title2 TEXT,
+  content2 TEXT,
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now()
 );
@@ -101,6 +107,34 @@ ALTER TABLE public.blogs ENABLE ROW LEVEL SECURITY;
 -- Allow public read for blog cards on main site
 CREATE POLICY "Anyone can read blogs"
   ON public.blogs FOR SELECT
+  USING (true);
+
+-- 7. Blog Comments table
+CREATE TABLE IF NOT EXISTS public.blog_comments (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  blog_id UUID NOT NULL REFERENCES public.blogs(id) ON DELETE CASCADE,
+  parent_id UUID REFERENCES public.blog_comments(id) ON DELETE CASCADE,
+  user_name TEXT NOT NULL,
+  content TEXT NOT NULL,
+  is_admin BOOLEAN DEFAULT false,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+ALTER TABLE public.blog_comments ENABLE ROW LEVEL SECURITY;
+
+-- Allow public to read comments
+CREATE POLICY "Anyone can read comments"
+  ON public.blog_comments FOR SELECT
+  USING (true);
+
+-- Allow public to insert comments
+CREATE POLICY "Anyone can insert comments"
+  ON public.blog_comments FOR INSERT
+  WITH CHECK (true);
+
+-- Allow anyone to delete comments (admin manages via dashboard)
+CREATE POLICY "Anyone can delete comments"
+  ON public.blog_comments FOR DELETE
   USING (true);
 
 -- ============================================

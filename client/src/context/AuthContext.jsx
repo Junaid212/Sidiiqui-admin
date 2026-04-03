@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect } from 'react';
-import { apiRequest } from '../config/api';
+import { supabase } from '../config/supabase';
 
 const AuthContext = createContext(null);
 
@@ -8,59 +8,90 @@ export function AuthProvider({ children }) {
     const [profile, setProfile] = useState(null);
     const [loading, setLoading] = useState(true);
 
-    // Check for existing session on mount
     useEffect(() => {
-        const token = localStorage.getItem('access_token');
-        if (token) {
-            fetchUser();
-        } else {
-            setLoading(false);
-        }
+        // Get initial session
+        supabase.auth.getSession().then(({ data: { session } }) => {
+            if (session) {
+                setUser(session.user);
+                fetchProfile(session.user.id);
+            } else {
+                setLoading(false);
+            }
+        });
+
+        // Listen for auth changes
+        const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+            if (session) {
+                setUser(session.user);
+                fetchProfile(session.user.id);
+            } else {
+                setUser(null);
+                setProfile(null);
+                setLoading(false);
+            }
+        });
+
+        return () => subscription.unsubscribe();
     }, []);
 
-    async function fetchUser() {
+    async function fetchProfile(userId) {
         try {
-            const data = await apiRequest('/auth/me');
-            setUser(data.user);
-            setProfile(data.profile);
+            const { data, error } = await supabase
+                .from('profiles')
+                .select('*')
+                .eq('id', userId)
+                .single();
+
+            if (!error && data) {
+                setProfile(data);
+            }
         } catch (err) {
-            console.error('Failed to fetch user:', err);
-            localStorage.removeItem('access_token');
-            setUser(null);
-            setProfile(null);
+            console.error('Failed to fetch profile:', err);
         } finally {
             setLoading(false);
         }
     }
 
     async function signIn(email, password) {
-        const data = await apiRequest('/auth/sign-in', {
-            method: 'POST',
-            body: JSON.stringify({ email, password }),
+        const { data, error } = await supabase.auth.signInWithPassword({
+            email,
+            password
         });
 
-        localStorage.setItem('access_token', data.session.access_token);
-        setUser(data.user);
-        await fetchUser(); // get profile data
+        if (error) throw error;
         return data;
     }
 
     async function signUp(email, password, full_name) {
-        const data = await apiRequest('/auth/sign-up', {
-            method: 'POST',
-            body: JSON.stringify({ email, password, full_name }),
+        const { data, error } = await supabase.auth.signUp({
+            email,
+            password,
+            options: {
+                data: {
+                    full_name
+                }
+            }
         });
 
-        localStorage.setItem('access_token', data.session.access_token);
-        setUser(data.user);
-        await fetchUser();
+        if (error) throw error;
         return data;
     }
 
-    function signOut() {
-        localStorage.removeItem('access_token');
-        setUser(null);
-        setProfile(null);
+    async function signOut() {
+        const { error } = await supabase.auth.signOut();
+        if (error) throw error;
+    }
+
+    async function resetPassword(email) {
+        const { error } = await supabase.auth.resetPasswordForEmail(email, {
+            redirectTo: `${window.location.origin}/reset-password`,
+        });
+        if (error) throw error;
+    }
+
+    async function updatePassword(newPassword) {
+        const { error } = await supabase.auth.updateUser({ password: newPassword });
+        if (error) throw error;
     }
 
     const value = {
@@ -70,6 +101,8 @@ export function AuthProvider({ children }) {
         signIn,
         signUp,
         signOut,
+        resetPassword,
+        updatePassword,
         isAuthenticated: !!user,
     };
 

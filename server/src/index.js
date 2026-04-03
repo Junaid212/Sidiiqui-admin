@@ -6,10 +6,13 @@ const morgan = require('morgan');
 const authRoutes = require('./routes/auth');
 const statsRoutes = require('./routes/stats');
 const consultationsRoutes = require('./routes/consultations');
+const publicConsultationsRoutes = require('./routes/consultationDetails');
 const blogsRoutes = require('./routes/blogs');
 const ordersRoutes = require('./routes/orders');
 const courseClicksRoutes = require('./routes/courseClicks');
 const signInsRoutes = require('./routes/signIns');
+const metricsRoutes = require('./routes/metrics');
+const contactMessagesRoutes = require('./routes/contactMessages');
 const { requireAuth } = require('./middleware/auth');
 
 const app = express();
@@ -17,14 +20,18 @@ const PORT = process.env.PORT || 5000;
 
 // --- Middleware ---
 app.use(cors({
-    origin: ['http://localhost:5173', 'http://localhost:3000'],
+    origin: true, // Allow all origins for local development
     credentials: true,
 }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(morgan('dev'));
 
-// --- Health Check ---
+// --- Health Check & Root ---
+app.get('/', (req, res) => {
+    res.status(200).send('Siddique Admin API is running.');
+});
+
 app.get('/api/health', (req, res) => {
     res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
 });
@@ -37,6 +44,37 @@ app.use('/api/blogs', requireAuth, blogsRoutes);
 app.use('/api/orders', requireAuth, ordersRoutes);
 app.use('/api/course-clicks-details', requireAuth, courseClicksRoutes);
 app.use('/api/sign-ins-details', requireAuth, signInsRoutes);
+app.use('/api/admin/metrics', requireAuth, metricsRoutes);
+app.use('/api/contact-messages', requireAuth, contactMessagesRoutes);
+
+app.use('/api/public/consultations', publicConsultationsRoutes);
+
+// Public route for contact form submission (no auth required)
+app.post('/api/public/contact', async (req, res) => {
+    try {
+        const { supabaseAdmin } = require('./config/supabase');
+        const { name, email, subject, message } = req.body;
+
+        // Validation
+        if (!name || !email || !subject || !message) {
+            return res.status(400).json({ error: 'All fields are required.' });
+        }
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(email)) {
+            return res.status(400).json({ error: 'Invalid email format.' });
+        }
+
+        const { error } = await supabaseAdmin
+            .from('contact_messages')
+            .insert({ name, email, subject, message });
+
+        if (error) return res.status(500).json({ error: error.message });
+        return res.status(201).json({ message: 'Your message has been sent successfully' });
+    } catch (err) {
+        console.error('Contact form error:', err);
+        return res.status(500).json({ error: 'Internal server error' });
+    }
+});
 
 // Public route for blog listing (main site can fetch without auth)
 app.get('/api/public/blogs', async (req, res) => {

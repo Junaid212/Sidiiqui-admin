@@ -3,7 +3,7 @@ import { useState, useEffect } from 'react';
 export default function BlogForm({ blog, onSubmit, onCancel }) {
     const [title, setTitle] = useState('');
     const [topic, setTopic] = useState('');
-    const [publishedDate, setPublishedDate] = useState('');
+    const [published_date, setPublishedDate] = useState('');
     const [content, setContent] = useState('');
     const [title2, setTitle2] = useState('');
     const [content2, setContent2] = useState('');
@@ -15,7 +15,7 @@ export default function BlogForm({ blog, onSubmit, onCancel }) {
         if (blog) {
             setTitle(blog.title || '');
             setTopic(blog.topic || '');
-            setPublishedDate(blog.published_date || '');
+            setPublishedDate(blog.published_date ? new Date(blog.published_date).toISOString().split('T')[0] : '');
             setContent(blog.content || '');
             setTitle2(blog.title2 || '');
             setContent2(blog.content2 || '');
@@ -37,16 +37,17 @@ export default function BlogForm({ blog, onSubmit, onCancel }) {
 
         setSubmitting(true);
         try {
-            const formData = new FormData();
-            formData.append('title', title);
-            formData.append('topic', topic);
-            formData.append('published_date', publishedDate);
-            formData.append('content', content);
-            formData.append('title2', title2);
-            formData.append('content2', content2);
-            if (image) {
-                formData.append('image', image);
-            }
+            const formData = {
+                title,
+                topic,
+                published_date,
+                content,
+                title2,
+                content2,
+                imageFile: image,
+                image_url: preview, // pass the old one if unedited
+                image_path: blog ? blog.image_path : null
+            };
             await onSubmit(formData);
         } catch (err) {
             console.error(err);
@@ -65,29 +66,6 @@ export default function BlogForm({ blog, onSubmit, onCancel }) {
 
                 <form onSubmit={handleSubmit} className="blog-form">
                     <div className="form-group">
-                        <label htmlFor="blog-topic">Topic</label>
-                        <input
-                            id="blog-topic"
-                            type="text"
-                            className="form-input"
-                            value={topic}
-                            onChange={(e) => setTopic(e.target.value)}
-                            placeholder="Data Science, Tech, etc."
-                        />
-                    </div>
-
-                    <div className="form-group">
-                        <label htmlFor="blog-date">Date of Published</label>
-                        <input
-                            id="blog-date"
-                            type="date"
-                            className="form-input"
-                            value={publishedDate}
-                            onChange={(e) => setPublishedDate(e.target.value)}
-                        />
-                    </div>
-
-                    <div className="form-group">
                         <label htmlFor="blog-title">Title</label>
                         <input
                             id="blog-title"
@@ -101,44 +79,67 @@ export default function BlogForm({ blog, onSubmit, onCancel }) {
                     </div>
 
                     <div className="form-group">
-                        <label htmlFor="blog-content">Content</label>
+                        <label htmlFor="blog-topic">Topic</label>
+                        <input
+                            id="blog-topic"
+                            type="text"
+                            className="form-input"
+                            value={topic}
+                            onChange={(e) => setTopic(e.target.value)}
+                            placeholder="e.g. Technology, Health"
+                        />
+                    </div>
+
+                    <div className="form-group">
+                        <label htmlFor="blog-date">Publish Date</label>
+                        <input
+                            id="blog-date"
+                            type="date"
+                            className="form-input"
+                            value={published_date}
+                            onChange={(e) => setPublishedDate(e.target.value)}
+                        />
+                    </div>
+
+                    <div className="form-group">
+                        <label htmlFor="blog-content">Primary Content</label>
                         <textarea
                             id="blog-content"
                             className="form-input form-textarea"
                             value={content}
                             onChange={(e) => setContent(e.target.value)}
-                            placeholder="Write your blog content..."
-                            rows="8"
+                            placeholder="Write your main blog content here..."
+                            rows="6"
                             required
                         />
                     </div>
 
                     <div className="form-group">
-                        <label htmlFor="blog-title2">Title 2 (Optional)</label>
+                        <label htmlFor="blog-title2">Secondary Title (Title 2)</label>
                         <input
                             id="blog-title2"
                             type="text"
                             className="form-input"
                             value={title2}
                             onChange={(e) => setTitle2(e.target.value)}
-                            placeholder="Enter secondary title..."
+                            placeholder="Optional secondary heading..."
                         />
                     </div>
 
                     <div className="form-group">
-                        <label htmlFor="blog-content2">Content 2 (Optional)</label>
+                        <label htmlFor="blog-content2">Secondary Content (Content 2)</label>
                         <textarea
                             id="blog-content2"
                             className="form-input form-textarea"
                             value={content2}
                             onChange={(e) => setContent2(e.target.value)}
-                            placeholder="Write your secondary abstract or content..."
-                            rows="4"
+                            placeholder="Write additional content here..."
+                            rows="6"
                         />
                     </div>
 
                     <div className="form-group">
-                        <label htmlFor="blog-image">Image</label>
+                        <label htmlFor="blog-image">Cover Image</label>
                         <div className="image-upload">
                             <input
                                 id="blog-image"

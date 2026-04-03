@@ -4,16 +4,19 @@ const { supabaseAdmin } = require('../config/supabase');
 
 // GET /api/consultations — Fetch all consultations ordered by date desc
 router.get('/', async (req, res) => {
+    console.log(`[Admin API] GET /api/consultations requested by user: ${req.user.email}`);
     try {
         const { data, error } = await supabaseAdmin
             .from('consultations')
             .select('*')
-            .order('date', { ascending: false });
+            .order('created_at', { ascending: false });
 
         if (error) {
+            console.error('[Admin API] Database error in consultations:', error.message);
             return res.status(500).json({ error: error.message });
         }
 
+        console.log(`[Admin API] Returning ${data ? data.length : 0} consultations to client`);
         return res.status(200).json({ consultations: data || [] });
     } catch (err) {
         console.error('Fetch consultations error:', err);
