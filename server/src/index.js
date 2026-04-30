@@ -8,6 +8,7 @@ const statsRoutes = require('./routes/stats');
 const consultationsRoutes = require('./routes/consultations');
 const publicConsultationsRoutes = require('./routes/consultationDetails');
 const blogsRoutes = require('./routes/blogs');
+const commentsRoutes = require('./routes/comments');
 const ordersRoutes = require('./routes/orders');
 const courseClicksRoutes = require('./routes/courseClicks');
 const signInsRoutes = require('./routes/signIns');
@@ -19,8 +20,21 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 
 // --- Middleware ---
+const allowedOrigins = [
+    'https://siddiqui.digital',
+    'https://www.siddiqui.digital',
+    'https://admin.siddiqui.digital',
+    'http://localhost:3000',
+    'http://localhost:5173',
+];
 app.use(cors({
-    origin: true, // Allow all origins for local development
+    origin: function (origin, callback) {
+        if (!origin || allowedOrigins.includes(origin)) {
+            callback(null, true);
+        } else {
+            callback(new Error(`CORS blocked: ${origin}`));
+        }
+    },
     credentials: true,
 }));
 app.use(express.json());
@@ -41,6 +55,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/stats', requireAuth, statsRoutes);
 app.use('/api/consultations', requireAuth, consultationsRoutes);
 app.use('/api/blogs', requireAuth, blogsRoutes);
+app.use('/api/comments', requireAuth, commentsRoutes);
 app.use('/api/orders', requireAuth, ordersRoutes);
 app.use('/api/course-clicks-details', requireAuth, courseClicksRoutes);
 app.use('/api/sign-ins-details', requireAuth, signInsRoutes);

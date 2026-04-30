@@ -3,21 +3,19 @@ const router = express.Router();
 const { supabaseAdmin } = require('../config/supabase');
 const nodemailer = require('nodemailer');
 
-// Initialize SMTP Transporter safely
-let transporter = null;
-if (process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS) {
-    transporter = nodemailer.createTransport({
+// Lazy SMTP transporter — built on first use so dotenv is guaranteed to have run
+function getTransporter() {
+    const port = parseInt(process.env.SMTP_PORT, 10) || 465;
+    return nodemailer.createTransport({
         host: process.env.SMTP_HOST,
-        port: process.env.SMTP_PORT || 587,
-        secure: process.env.SMTP_PORT == 465, // true for 465, false for other ports
+        port: port,
+        secure: port === 465,
         auth: {
             user: process.env.SMTP_USER,
             pass: process.env.SMTP_PASS,
         },
+        tls: { rejectUnauthorized: false },
     });
-    console.log('✅ SMTP Transporter initialized');
-} else {
-    console.warn('⚠️ SMTP credentials missing. Email notifications will be disabled.');
 }
 
 /**
@@ -59,6 +57,7 @@ router.post('/', async (req, res) => {
         }
 
         // 3. Send Confirmation Email via SMTP
+        const transporter = getTransporter();
         if (transporter) {
             try {
                 // Send email to the user
@@ -103,8 +102,6 @@ router.post('/', async (req, res) => {
                                 <p style="margin: 5px 0;"><strong>Consultant:</strong> ${assignedConsultant}</p>
                                 <p style="margin: 5px 0;"><strong>Message:</strong> ${message || 'N/A'}</p>
                             </div>
-                            // <p>Please check the admin dashboard for more details.</p>
-                        </div>
                     `
                 });
                 console.log('📧 Notification email sent to admin:', adminEmail);

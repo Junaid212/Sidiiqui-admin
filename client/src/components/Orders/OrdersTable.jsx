@@ -29,10 +29,10 @@ export default function OrdersTable({ orders }) {
                                 <td style={{ fontFamily: 'monospace', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
                                     {order.id.split('-')[0]}...
                                 </td>
-                                <td>{order.email}</td>
+                                <td>{order.user_email || order.email}</td>
                                 <td>
                                     <span style={{ padding: '4px 8px', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 'bold', backgroundColor: 'rgba(99, 102, 241, 0.1)', color: '#818cf8', textTransform: 'uppercase' }}>
-                                        {order.book_name}
+                                        {order.ebook_title || order.book_name}
                                     </span>
                                 </td>
                                 <td>

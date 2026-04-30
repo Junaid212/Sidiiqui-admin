@@ -1,39 +1,30 @@
+import { apiRequest } from '../config/api';
 import { supabase } from '../config/supabase';
 
-// generateSlug removed as user's schema does not use slug
 /**
- * Fetch all blogs safely
+ * Fetch all blogs safely via admin backend
  */
 export async function fetchBlogs() {
-    const { data, error } = await supabase
-        .from('blogs')
-        .select('*')
-        .order('created_at', { ascending: false });
-
-    if (error) throw error;
-    return data || [];
+    const data = await apiRequest('/blogs');
+    return data.blogs || [];
 }
 
 /**
- * Fetch exactly one blog safely using its ID
+ * Fetch exactly one blog safely using its ID via admin backend
  */
 export async function fetchBlogById(id) {
-    const { data, error } = await supabase
-        .from('blogs')
-        .select('*')
-        .eq('id', id)
-        .single();
-
-    if (error) throw error;
-    return data;
+    const data = await apiRequest(`/blogs/${id}`);
+    return data.blog;
 }
 
 /**
  * Upload an image to the 'blogs' bucket
- * @param {File} file 
- * @returns {{ publicUrl: string, filePath: string } | null}
+ * Note: Since backend handles upload, this client side function isn't strictly needed 
+ * if we just pass the File directly to the backend. But if components rely on it, we'll keep it.
+ * Actually, the backend /api/blogs endpoint accepts multipart/form-data.
  */
 export async function uploadCoverImage(file) {
+    // Keep this for compatibility if any UI components use it independently
     if (!file) return null;
 
     const fileName = `${Date.now()}-${file.name.replace(/\s+/g, '-')}`;
@@ -53,12 +44,14 @@ export async function uploadCoverImage(file) {
 }
 
 /**
- * Create a new Blog record
+ * Create a new Blog record via admin backend
  */
 export async function createBlog(blogData) {
-    const { data, error } = await supabase
-        .from('blogs')
-        .insert([{
+    // Determine if we are sending JSON or FormData
+    // If backend expects JSON and we have an image_url already
+    const data = await apiRequest('/blogs', {
+        method: 'POST',
+        body: JSON.stringify({
             title: blogData.title,
             content: blogData.content,
             topic: blogData.topic,
@@ -67,53 +60,27 @@ export async function createBlog(blogData) {
             content2: blogData.content2,
             image_url: blogData.image_url,
             image_path: blogData.image_path
-        }])
-        .select()
-        .single();
-
-    if (error) throw error;
-    return data;
+        })
+    });
+    return data.blog;
 }
 
 /**
- * Update an existing Blog record
+ * Update an existing Blog record via admin backend
  */
 export async function updateBlog(id, blogData) {
-    const updatePayload = {
-        updated_at: new Date().toISOString()
-    };
-
-    // Only update fields that are strictly provided
-    if (blogData.title) updatePayload.title = blogData.title;
-    if (blogData.content) updatePayload.content = blogData.content;
-    if (blogData.topic !== undefined) updatePayload.topic = blogData.topic;
-    if (blogData.title2 !== undefined) updatePayload.title2 = blogData.title2;
-    if (blogData.content2 !== undefined) updatePayload.content2 = blogData.content2;
-    if (blogData.published_date !== undefined) updatePayload.published_date = blogData.published_date;
-    if (blogData.image_url !== undefined) {
-        updatePayload.image_url = blogData.image_url;
-        updatePayload.image_path = blogData.image_path;
-    }
-
-    const { data, error } = await supabase
-        .from('blogs')
-        .update(updatePayload)
-        .eq('id', id)
-        .select()
-        .single();
-
-    if (error) throw error;
-    return data;
+    const data = await apiRequest(`/blogs/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify(blogData)
+    });
+    return data.blog;
 }
 
 /**
- * Delete a single Blog record safely
+ * Delete a single Blog record safely via admin backend
  */
 export async function deleteBlog(id) {
-    const { error } = await supabase
-        .from('blogs')
-        .delete()
-        .eq('id', id);
-
-    if (error) throw error;
+    await apiRequest(`/blogs/${id}`, {
+        method: 'DELETE'
+    });
 }
