@@ -8,6 +8,7 @@ export default function ForgotPassword() {
     const [loading, setLoading] = useState(false);
     const [sent, setSent] = useState(false);
     const [error, setError] = useState('');
+    const [resendCooldown, setResendCooldown] = useState(0);
     const { resetPassword } = useAuth();
 
     async function handleSubmit(e) {
@@ -20,10 +21,52 @@ export default function ForgotPassword() {
             await resetPassword(email);
             // Always show success — don't reveal if email exists in the system
             setSent(true);
+            // Start 60-second cooldown for resend
+            startCooldown();
         } catch (err) {
-            // Show generic error without leaking system info
-            setError('Something went wrong. Please try again later.');
+            const msg = err.message || '';
+            if (msg.toLowerCase().includes('rate limit') || msg.toLowerCase().includes('too many')) {
+                setError('Too many requests. Please wait a moment before trying again.');
+            } else {
+                // Show generic error without leaking system info
+                setError('Something went wrong. Please try again later.');
+            }
             console.error('Password reset error:', err);
+        } finally {
+            setLoading(false);
+        }
+    }
+
+    function startCooldown() {
+        setResendCooldown(60);
+        const interval = setInterval(() => {
+            setResendCooldown(prev => {
+                if (prev <= 1) {
+                    clearInterval(interval);
+                    return 0;
+                }
+                return prev - 1;
+            });
+        }, 1000);
+    }
+
+    async function handleResend() {
+        if (resendCooldown > 0 || loading) return;
+
+        setLoading(true);
+        setError('');
+        try {
+            await resetPassword(email);
+            startCooldown();
+            // Keep showing the success screen
+        } catch (err) {
+            const msg = err.message || '';
+            if (msg.toLowerCase().includes('rate limit') || msg.toLowerCase().includes('too many')) {
+                setError('Please wait before requesting another email.');
+            } else {
+                setError('Failed to resend. Please try again.');
+            }
+            console.error('Resend reset error:', err);
         } finally {
             setLoading(false);
         }
@@ -89,6 +132,20 @@ export default function ForgotPassword() {
                     </>
                 ) : (
                     <div style={{ textAlign: 'center' }}>
+                        {error && (
+                            <div style={{
+                                background: 'rgba(239, 68, 68, 0.1)',
+                                border: '1px solid rgba(239, 68, 68, 0.25)',
+                                borderRadius: 'var(--radius-md)',
+                                padding: '12px 16px',
+                                marginBottom: '16px',
+                                color: 'var(--danger)',
+                                fontSize: '0.85rem',
+                                textAlign: 'left',
+                            }}>
+                                {error}
+                            </div>
+                        )}
                         <div style={{
                             background: 'rgba(16, 185, 129, 0.08)',
                             border: '1px solid rgba(16, 185, 129, 0.2)',
@@ -101,8 +158,23 @@ export default function ForgotPassword() {
                         }}>
                             The link expires in 1 hour. If you don't see the email, check your spam folder.
                         </div>
+
                         <button
-                            onClick={() => { setSent(false); setEmail(''); }}
+                            onClick={handleResend}
+                            className="btn btn--outline btn--full"
+                            disabled={loading || resendCooldown > 0}
+                            style={{ marginBottom: '12px' }}
+                        >
+                            {loading
+                                ? 'Sending...'
+                                : resendCooldown > 0
+                                    ? `Resend available in ${resendCooldown}s`
+                                    : 'Resend Reset Link'
+                            }
+                        </button>
+
+                        <button
+                            onClick={() => { setSent(false); setEmail(''); setError(''); }}
                             className="btn btn--ghost btn--full"
                         >
                             Send to a different email

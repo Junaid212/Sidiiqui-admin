@@ -62,7 +62,7 @@ router.post('/', async (req, res) => {
             try {
                 // Send email to the user
                 await transporter.sendMail({
-                    from: `"Siddiqui Digital" <${process.env.SMTP_FROM || process.env.SMTP_USER}>`,
+                    from: process.env.SMTP_FROM || process.env.SMTP_USER,
                     to: email,
                     subject: 'Consultation Booking Confirmed',
                     html: `
@@ -86,7 +86,7 @@ router.post('/', async (req, res) => {
                 // Send email to the admin
                 const adminEmail = process.env.ADMIN_EMAIL || process.env.SMTP_USER;
                 await transporter.sendMail({
-                    from: `"Siddiqui Digital System" <${process.env.SMTP_FROM || process.env.SMTP_USER}>`,
+                    from: process.env.SMTP_FROM || process.env.SMTP_USER,
                     to: adminEmail,
                     subject: `New Consultation Booking: ${name}`,
                     html: `

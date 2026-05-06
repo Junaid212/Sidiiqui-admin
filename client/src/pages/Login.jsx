@@ -20,7 +20,19 @@ export default function Login() {
             toast.success('Welcome back!');
             navigate('/');
         } catch (err) {
-            toast.error(err.message || 'Sign in failed');
+            // Provide a more helpful message for the most common errors
+            const msg = err.message || '';
+            if (msg.toLowerCase().includes('email not confirmed')) {
+                toast.error('Please confirm your email address first. Check your inbox.');
+            } else if (msg.toLowerCase().includes('invalid login credentials') || msg.toLowerCase().includes('invalid credentials')) {
+                toast.error('Incorrect email or password. Please try again.');
+            } else if (msg.toLowerCase().includes('rate limit') || msg.toLowerCase().includes('too many')) {
+                toast.error('Too many login attempts. Please wait a moment and try again.');
+            } else if (msg.toLowerCase().includes('fetch') || msg.toLowerCase().includes('network') || !navigator.onLine) {
+                toast.error('Network error. Please check your connection and try again.');
+            } else {
+                toast.error(msg || 'Sign in failed. Please try again.');
+            }
         } finally {
             setLoading(false);
         }
@@ -48,6 +60,7 @@ export default function Login() {
                             onChange={(e) => setEmail(e.target.value)}
                             placeholder="admin@example.com"
                             required
+                            autoFocus
                         />
                     </div>
 

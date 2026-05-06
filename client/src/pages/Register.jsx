@@ -2,18 +2,33 @@ import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import toast from 'react-hot-toast';
+import { HiCheckCircle } from 'react-icons/hi';
+
 
 export default function Register() {
     const [fullName, setFullName] = useState('');
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [loading, setLoading] = useState(false);
-    const { signUp } = useAuth();
+    const [confirmSent, setConfirmSent] = useState(false);
+    const [resending, setResending] = useState(false);
+    const [resendCooldown, setResendCooldown] = useState(0);
+    const { signUp, resendConfirmation } = useAuth();
     const navigate = useNavigate();
+
+    // Basic email format validation
+    function isValidEmail(email) {
+        return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+    }
 
     async function handleSubmit(e) {
         e.preventDefault();
         if (!email || !password) return;
+
+        if (!isValidEmail(email)) {
+            toast.error('Please enter a valid email address');
+            return;
+        }
 
         if (password.length < 6) {
             toast.error('Password must be at least 6 characters');
@@ -22,14 +37,119 @@ export default function Register() {
 
         setLoading(true);
         try {
-            await signUp(email, password, fullName);
-            toast.success('Account created successfully!');
-            navigate('/');
+            const data = await signUp(email, password, fullName);
+
+            if (data?.session) {
+                // Server auto-confirmed the user and returned a session — signed in immediately
+                toast.success('Account created successfully! Welcome aboard.');
+                navigate('/');
+            } else if (data?.user && !data?.session) {
+                // Fallback: email confirmation required
+                setConfirmSent(true);
+                toast.success('Check your email to confirm your account!');
+            }
         } catch (err) {
-            toast.error(err.message || 'Sign up failed');
+            const msg = err.message || '';
+            if (msg.toLowerCase().includes('already registered') || msg.toLowerCase().includes('already been registered')) {
+                toast.error('This email is already registered. Try signing in instead.');
+            } else if (msg.toLowerCase().includes('rate limit') || msg.toLowerCase().includes('too many')) {
+                toast.error('Too many attempts. Please wait a moment and try again.');
+            } else {
+                toast.error(msg || 'Sign up failed');
+            }
         } finally {
             setLoading(false);
         }
+    }
+
+    async function handleResendEmail() {
+        if (resendCooldown > 0 || resending) return;
+
+        setResending(true);
+        try {
+            await resendConfirmation(email);
+            toast.success('Verification email resent! Check your inbox.');
+            // Start 60-second cooldown
+            setResendCooldown(60);
+            const interval = setInterval(() => {
+                setResendCooldown(prev => {
+                    if (prev <= 1) {
+                        clearInterval(interval);
+                        return 0;
+                    }
+                    return prev - 1;
+                });
+            }, 1000);
+        } catch (err) {
+            const msg = err.message || '';
+            if (msg.toLowerCase().includes('rate limit') || msg.toLowerCase().includes('too many')) {
+                toast.error('Please wait before requesting another email.');
+            } else {
+                toast.error('Failed to resend email. Please try again.');
+            }
+            console.error('Resend confirmation error:', err);
+        } finally {
+            setResending(false);
+        }
+    }
+
+    // Email confirmation sent screen
+    if (confirmSent) {
+        return (
+            <div className="auth-page">
+                <div className="auth-card">
+                    <div className="auth-card__header">
+                        <div className="auth-card__logo">
+                            <HiCheckCircle style={{ fontSize: '1.8rem', color: '#fff' }} />
+                        </div>
+                        <h1>Check Your Email</h1>
+                        <p>We've sent a confirmation link to <strong style={{ color: 'var(--text-primary)' }}>{email}</strong></p>
+                    </div>
+
+                    <div style={{
+                        background: 'rgba(16, 185, 129, 0.08)',
+                        border: '1px solid rgba(16, 185, 129, 0.2)',
+                        borderRadius: 'var(--radius-md)',
+                        padding: '16px',
+                        marginBottom: '24px',
+                        color: 'var(--success)',
+                        fontSize: '0.85rem',
+                        lineHeight: '1.6',
+                    }}>
+                        Click the confirmation link in your email to activate your account. 
+                        Check your spam folder if you don't see it within a few minutes.
+                    </div>
+
+                    <button
+                        onClick={handleResendEmail}
+                        className="btn btn--outline btn--full"
+                        disabled={resending || resendCooldown > 0}
+                        style={{ marginBottom: '12px' }}
+                    >
+                        {resending
+                            ? 'Sending...'
+                            : resendCooldown > 0
+                                ? `Resend available in ${resendCooldown}s`
+                                : 'Resend Verification Email'
+                        }
+                    </button>
+
+                    <button
+                        onClick={() => { setConfirmSent(false); setEmail(''); setPassword(''); setFullName(''); }}
+                        className="btn btn--ghost btn--full"
+                    >
+                        Use a different email
+                    </button>
+
+                    <div className="auth-card__footer">
+                        <p>
+                            Already confirmed?{' '}
+                            <Link to="/login" className="auth-link">Sign In</Link>
+                        </p>
+                    </div>
+                </div>
+            </div>
+        );
     }
 
     return (

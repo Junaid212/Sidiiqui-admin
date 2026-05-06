@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { fetchBlogs, createBlog, updateBlog, deleteBlog, uploadCoverImage } from '../services/blogService';
+import { fetchBlogs, createBlog, updateBlog, deleteBlog } from '../services/blogService';
 import BlogList from '../components/Blog/BlogList';
 import BlogForm from '../components/Blog/BlogForm';
 import toast from 'react-hot-toast';
@@ -28,29 +28,7 @@ export default function AdminBlogManagement() {
 
     async function handleCreate(formData) {
         try {
-            let image_url = null;
-            let image_path = null;
-
-            if (formData.imageFile) {
-                const uploadResult = await uploadCoverImage(formData.imageFile);
-                if (uploadResult) {
-                    image_url = uploadResult.publicUrl;
-                    image_path = uploadResult.filePath;
-                }
-            }
-
-            const newBlogData = {
-                title: formData.title,
-                content: formData.content,
-                topic: formData.topic,
-                published_date: formData.published_date,
-                title2: formData.title2,
-                content2: formData.content2,
-                image_url: image_url,
-                image_path: image_path,
-            };
-
-            const data = await createBlog(newBlogData);
+            const data = await createBlog(formData);
             setBlogs((prev) => [data, ...prev]);
             setShowForm(false);
             toast.success('Blog created successfully');
@@ -61,30 +39,7 @@ export default function AdminBlogManagement() {
 
     async function handleUpdate(formData) {
         try {
-            let image_url = formData.image_url; // keep existing if unchanged
-            let image_path = formData.image_path;
-
-            if (formData.imageFile) {
-                const uploadResult = await uploadCoverImage(formData.imageFile);
-                if (uploadResult) {
-                    image_url = uploadResult.publicUrl;
-                    image_path = uploadResult.filePath;
-                }
-            }
-
-            const updateData = {
-                title: formData.title,
-                content: formData.content,
-                topic: formData.topic,
-                published_date: formData.published_date,
-                title2: formData.title2,
-                content2: formData.content2,
-                image_url: image_url,
-                image_path: image_path,
-            };
-
-            const data = await updateBlog(editingBlog.id, updateData);
-
+            const data = await updateBlog(editingBlog.id, formData);
             setBlogs((prev) =>
                 prev.map((b) => (b.id === editingBlog.id ? data : b))
             );
@@ -123,7 +78,7 @@ export default function AdminBlogManagement() {
         return (
             <div className="page-loading">
                 <div className="spinner" />
-                <p>Loading blogs natively...</p>
+                <p>Loading blogs...</p>
             </div>
         );
     }

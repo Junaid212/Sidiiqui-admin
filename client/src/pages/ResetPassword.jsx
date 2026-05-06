@@ -36,18 +36,37 @@ export default function ResetPassword() {
 
     // Supabase sends the recovery token in the URL hash — wait for the session
     useEffect(() => {
-        const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
-            if (event === 'PASSWORD_RECOVERY') {
+        let settled = false;
+
+        const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+            // PASSWORD_RECOVERY = user clicked the reset link from email
+            // SIGNED_IN = Supabase exchanged the token and signed in the user
+            if (event === 'PASSWORD_RECOVERY' || (event === 'SIGNED_IN' && session)) {
+                settled = true;
                 setSessionReady(true);
             }
         });
 
-        // Check if we already have a session (e.g. user refreshed the page)
+        // Check if we already have a valid session (e.g. user refreshed this page)
         supabase.auth.getSession().then(({ data: { session } }) => {
-            if (session) setSessionReady(true);
+            if (session) {
+                settled = true;
+                setSessionReady(true);
+            }
         });
 
-        return () => subscription.unsubscribe();
+        // Timeout fallback — if no auth event fires within 6s, stop spinning
+        const timer = setTimeout(() => {
+            if (!settled) {
+                setSessionReady(false);
+                setError('Reset link is invalid or has expired. Please request a new one.');
+            }
+        }, 6000);
+
+        return () => {
+            subscription.unsubscribe();
+            clearTimeout(timer);
+        };
     }, []);
 
     async function handleSubmit(e) {
@@ -85,16 +104,22 @@ export default function ResetPassword() {
                         <div className="auth-card__logo">
                             <HiLockClosed style={{ fontSize: '1.8rem', color: '#fff' }} />
                         </div>
-                        <h1>Verifying Link</h1>
-                        <p>Please wait while we verify your reset link...</p>
+                        <h1>{error ? 'Link Expired' : 'Verifying Link'}</h1>
+                        <p>
+                            {error
+                                ? error
+                                : 'Please wait while we verify your reset link...'
+                            }
+                        </p>
                     </div>
-                    <div style={{ display: 'flex', justifyContent: 'center', padding: '20px 0' }}>
-                        <div className="spinner" />
-                    </div>
+                    {!error && (
+                        <div style={{ display: 'flex', justifyContent: 'center', padding: '20px 0' }}>
+                            <div className="spinner" />
+                        </div>
+                    )}
                     <div className="auth-card__footer">
                         <p>
-                            Link not working?{' '}
-                            <Link to="/forgot-password" className="auth-link">Request a new one</Link>
+                            <Link to="/forgot-password" className="auth-link">Request a new reset link</Link>
                         </p>
                     </div>
                 </div>

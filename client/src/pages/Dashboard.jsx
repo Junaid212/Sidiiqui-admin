@@ -104,7 +104,7 @@ export default function Dashboard() {
             <div className="stats-grid">
                 <Link to="/orders" style={{ textDecoration: 'none', color: 'inherit', display: 'block' }}>
                     <StatCard
-                        title="EBook "
+                        title="EBook"
                         value={` ${stats.ebookRevenue.toLocaleString()} `}
                         subtitle={`${stats.ebookCount} successful orders`}
                         icon={HiOutlineCurrencyDollar}
@@ -113,7 +113,7 @@ export default function Dashboard() {
                 </Link>
                 <Link to="/course-interactions" style={{ textDecoration: 'none', color: 'inherit', display: 'block' }}>
                     <StatCard
-                        title="Course "
+                        title="Course"
                         value={stats.courseClicks.toLocaleString()}
                         subtitle="Total course card clicks"
                         icon={HiOutlineCursorClick}

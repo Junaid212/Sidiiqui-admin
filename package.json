@@ -1,5 +1,8 @@
 {
   "devDependencies": {
     "gh-pages": "^6.3.0"
+  },
+  "dependencies": {
+    "nodemailer": "^8.0.7"
   }
 }

@@ -3,6 +3,12 @@ import { supabase } from '../config/supabase';
 
 const AuthContext = createContext(null);
 
+// Determine the correct reset-password URL for both dev and production
+const getResetRedirectUrl = () => {
+    const origin = window.location.origin;
+    return `${origin}/reset-password`;
+};
+
 export function AuthProvider({ children }) {
     const [user, setUser] = useState(null);
     const [profile, setProfile] = useState(null);
@@ -45,6 +51,7 @@ export function AuthProvider({ children }) {
             if (!error && data) {
                 setProfile(data);
             }
+            // Profile not found is OK — not all users will have one yet
         } catch (err) {
             console.error('Failed to fetch profile:', err);
         } finally {
@@ -63,18 +70,27 @@ export function AuthProvider({ children }) {
     }
 
     async function signUp(email, password, full_name) {
-        const { data, error } = await supabase.auth.signUp({
-            email,
-            password,
-            options: {
-                data: {
-                    full_name
-                }
-            }
+        const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
+        const response = await fetch(`${API_URL}/auth/sign-up`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, password, full_name: full_name || '' }),
         });
 
-        if (error) throw error;
-        return data;
+        const result = await response.json();
+        if (!response.ok) {
+            throw new Error(result.error || 'Sign up failed');
+        }
+
+        // Set the session returned by the server so the client is authenticated
+        if (result.session) {
+            await supabase.auth.setSession({
+                access_token: result.session.access_token,
+                refresh_token: result.session.refresh_token,
+            });
+        }
+
+        return result;
     }
 
     async function signOut() {
@@ -83,14 +99,32 @@ export function AuthProvider({ children }) {
     }
 
     async function resetPassword(email) {
-        const { error } = await supabase.auth.resetPasswordForEmail(email, {
-            redirectTo: `${window.location.origin}/reset-password`,
+        const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
+        const response = await fetch(`${API_URL}/auth/reset-password`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, redirectTo: getResetRedirectUrl() }),
         });
-        if (error) throw error;
+
+        const result = await response.json();
+        if (!response.ok) {
+            throw new Error(result.error || 'Password reset failed');
+        }
     }
 
     async function updatePassword(newPassword) {
         const { error } = await supabase.auth.updateUser({ password: newPassword });
+        if (error) throw error;
+    }
+
+    async function resendConfirmation(email) {
+        const { error } = await supabase.auth.resend({
+            type: 'signup',
+            email,
+            options: {
+                emailRedirectTo: `${window.location.origin}/login`,
+            },
+        });
         if (error) throw error;
     }
 
@@ -103,6 +137,7 @@ export function AuthProvider({ children }) {
         signOut,
         resetPassword,
         updatePassword,
+        resendConfirmation,
         isAuthenticated: !!user,
     };
 
