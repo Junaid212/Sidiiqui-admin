@@ -70,7 +70,7 @@ export function AuthProvider({ children }) {
     }
 
     async function signUp(email, password, full_name) {
-        const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
+        const API_URL = 'https://siddiqui.digital/api' || 'http://localhost:5001/api';
         const response = await fetch(`${API_URL}/auth/sign-up`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -99,7 +99,7 @@ export function AuthProvider({ children }) {
     }
 
     async function resetPassword(email) {
-        const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
+        const API_URL = 'https://siddiqui.digital/api' || 'http://localhost:5001/api';
         const response = await fetch(`${API_URL}/auth/reset-password`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
