@@ -17,9 +17,12 @@ const contactMessagesRoutes = require('./routes/contactMessages');
 const { requireAuth } = require('./middleware/auth');
 
 const app = express();
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 5001;
 
-// --- Middleware ---
+// Trust the first proxy (Nginx) — required for correct IP, protocol, and host detection
+app.set('trust proxy', 1);
+
+// --- CORS Configuration ---
 const allowedOrigins = [
     'https://siddiqui.digital',
     'https://www.siddiqui.digital',
@@ -27,8 +30,10 @@ const allowedOrigins = [
     'http://localhost:3000',
     'http://localhost:5173',
 ];
-app.use(cors({
+
+const corsOptions = {
     origin: function (origin, callback) {
+        // Allow requests with no origin (server-to-server, curl, Postman)
         if (!origin || allowedOrigins.includes(origin)) {
             callback(null, true);
         } else {
@@ -36,7 +41,15 @@ app.use(cors({
         }
     },
     credentials: true,
-}));
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+};
+
+// Handle CORS preflight (OPTIONS) for ALL routes — must come BEFORE route definitions
+app.options('*', cors(corsOptions));
+app.use(cors(corsOptions));
+
+// --- Body & Logging Middleware ---
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(morgan('dev'));

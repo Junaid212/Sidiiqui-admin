@@ -154,11 +154,16 @@ router.post('/reset-password', async (req, res) => {
         console.log(`[Reset Password] Request received for: ${email}`);
         if (!email) return res.status(400).json({ error: 'Email is required' });
 
+        // Use client-supplied redirectTo, but fall back to the server's FRONTEND_URL env var
+        // to guarantee the reset link always points to the correct production domain.
+        const resetRedirectUrl = redirectTo
+            || (process.env.FRONTEND_URL ? `${process.env.FRONTEND_URL}/reset-password` : undefined);
+
         // Generate recovery link
         const { data, error } = await supabaseAdmin.auth.admin.generateLink({
             type: 'recovery',
             email,
-            options: { redirectTo: redirectTo || undefined }
+            options: { redirectTo: resetRedirectUrl || undefined }
         });
 
         if (error) {
