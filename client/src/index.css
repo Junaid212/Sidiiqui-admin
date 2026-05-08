@@ -51,6 +51,12 @@
   --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
   --transition-base: 250ms cubic-bezier(0.4, 0, 0.2, 1);
   --transition-slow: 400ms cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* Responsive breakpoints (used for reference) */
+  --bp-mobile: 480px;
+  --bp-tablet: 768px;
+  --bp-laptop: 1024px;
+  --bp-desktop: 1440px;
 }
 
 /* --- Reset & Base --- */
@@ -140,6 +146,23 @@ a:hover {
   padding: 32px 40px;
   min-height: 100vh;
   transition: margin-left var(--transition-base);
+  /* Prevent overflow on any screen size */
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+/* Extra wide screens — cap content width for readability */
+@media (min-width: 1600px) {
+  .layout__main {
+    padding: 40px 60px;
+  }
+}
+
+@media (min-width: 1920px) {
+  .layout__main {
+    padding: 48px 80px;
+  }
 }
 
 /* ============================================
@@ -651,8 +674,10 @@ a:hover {
 
 .stats-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  /* min() ensures cards never overflow on small screens */
+  grid-template-columns: repeat(auto-fill, minmax(min(260px, 100%), 1fr));
   gap: 20px;
+  width: 100%;
 }
 
 .stat-card {
@@ -735,9 +760,11 @@ a:hover {
 
 .dashboard-charts {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(450px, 1fr));
+  /* min() clamps the minimum so charts never force horizontal scroll */
+  grid-template-columns: repeat(auto-fit, minmax(min(450px, 100%), 1fr));
   gap: 24px;
   margin-top: 32px;
+  width: 100%;
 }
 
 .chart-card {
@@ -748,6 +775,8 @@ a:hover {
   padding: 24px;
   display: flex;
   flex-direction: column;
+  min-width: 0; /* prevent chart overflow */
+  overflow: hidden;
 }
 
 .chart-card__title {
@@ -760,8 +789,9 @@ a:hover {
 
 .chart-wrapper {
   flex: 1;
-  min-height: 300px;
+  min-height: 260px;
   width: 100%;
+  overflow: hidden;
 }
 
 /* ============================================
@@ -770,15 +800,19 @@ a:hover {
 
 .table-wrapper {
   overflow-x: auto;
+  -webkit-overflow-scrolling: touch; /* smooth scroll on iOS */
   border: 1px solid var(--border-color);
   border-radius: var(--radius-lg);
   background: var(--bg-card);
   backdrop-filter: blur(16px);
+  width: 100%;
 }
 
 .data-table {
   width: 100%;
+  min-width: 600px; /* forces horizontal scroll on small screens instead of collapsing */
   border-collapse: collapse;
+  table-layout: auto;
 }
 
 .data-table thead {
@@ -840,8 +874,9 @@ a:hover {
 
 .blog-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(320px, 100%), 1fr));
   gap: 24px;
+  width: 100%;
 }
 
 .blog-card {
@@ -950,10 +985,13 @@ a:hover {
   max-width: 600px;
   max-height: 90vh;
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-xl);
   animation: scaleIn 0.3s ease;
+  /* Ensure modal never exceeds viewport on small screens */
+  margin: 0 auto;
 }
 
 @keyframes scaleIn {
@@ -1101,16 +1139,45 @@ a:hover {
    RESPONSIVE
    ============================================ */
 
+/* --- Laptop / small desktop (1024px) --- */
 @media (max-width: 1024px) {
   .layout__main {
-    padding: 24px;
+    padding: 24px 28px;
   }
 
   .stats-grid {
-    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(min(220px, 100%), 1fr));
+  }
+
+  .dashboard-charts {
+    grid-template-columns: 1fr;
   }
 }
 
+/* --- Tablet (900px) --- */
+@media (max-width: 900px) {
+  .layout__main {
+    padding: 24px 20px;
+  }
+
+  .stats-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .blog-grid {
+    grid-template-columns: repeat(auto-fill, minmax(min(280px, 100%), 1fr));
+  }
+
+  .dashboard-charts {
+    grid-template-columns: 1fr;
+  }
+
+  .chart-wrapper {
+    min-height: 220px;
+  }
+}
+
+/* --- Mobile (768px) --- */
 @media (max-width: 768px) {
   .sidebar-toggle {
     display: flex;
@@ -1130,19 +1197,41 @@ a:hover {
 
   .layout__main {
     margin-left: 0;
-    padding: 80px 16px 24px;
+    padding: 76px 16px 32px;
   }
 
   .page__header {
     flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+    margin-bottom: 24px;
+  }
+
+  .page__header > * {
+    width: 100%;
   }
 
   .stats-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
   }
 
   .blog-grid {
     grid-template-columns: 1fr;
+  }
+
+  .dashboard-charts {
+    grid-template-columns: 1fr;
+    gap: 16px;
+    margin-top: 20px;
+  }
+
+  .chart-card {
+    padding: 16px;
+  }
+
+  .chart-wrapper {
+    min-height: 200px;
   }
 
   .data-table th,
@@ -1154,9 +1243,43 @@ a:hover {
   .auth-card {
     padding: 28px 20px;
   }
+
+  .modal-overlay {
+    padding: 12px;
+    align-items: flex-end;
+  }
+
+  .modal {
+    max-height: 95vh;
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  }
+
+  .blog-form {
+    padding: 20px 16px;
+    gap: 18px;
+  }
+
+  .form-actions {
+    flex-direction: column-reverse;
+  }
+
+  .form-actions .btn {
+    width: 100%;
+    justify-content: center;
+  }
 }
 
+/* --- Small mobile (480px) --- */
 @media (max-width: 480px) {
+  .stats-grid {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .stat-card {
+    padding: 16px;
+  }
+
   .stat-card__value {
     font-size: 1.6rem;
   }
@@ -1165,7 +1288,50 @@ a:hover {
     font-size: 1.4rem;
   }
 
-  .modal {
-    margin: 12px;
+  .page__subtitle {
+    font-size: 0.82rem;
+  }
+
+  .sidebar__title {
+    font-size: 1rem;
+  }
+
+  .data-table {
+    min-width: 500px;
+  }
+
+  .data-table th,
+  .data-table td {
+    padding: 8px 10px;
+    font-size: 0.78rem;
+  }
+
+  .btn {
+    padding: 10px 18px;
+    font-size: 0.85rem;
+  }
+
+  .btn--sm {
+    padding: 5px 10px;
+    font-size: 0.75rem;
+  }
+
+  .chart-card__title {
+    font-size: 0.9rem;
+  }
+
+  .blog-card__body {
+    padding: 14px;
+  }
+
+  .blog-card__actions {
+    padding: 10px 14px;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .auth-card {
+    padding: 24px 16px;
+    border-radius: var(--radius-lg);
   }
 }

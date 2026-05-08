@@ -51,12 +51,15 @@ async function deleteImage(imagePath) {
     }
 }
 
-// GET /api/blogs — List all blogs
+// GET /api/blogs — List only THIS admin's blogs
 router.get('/', async (req, res) => {
     try {
+        const adminId = req.user.id;
+
         const { data, error } = await supabaseAdmin
             .from('blogs')
             .select('*')
+            .eq('admin_id', adminId)
             .order('created_at', { ascending: false });
 
         if (error) {
@@ -70,13 +73,16 @@ router.get('/', async (req, res) => {
     }
 });
 
-// GET /api/blogs/:id — Get single blog
+// GET /api/blogs/:id — Get single blog (must belong to this admin)
 router.get('/:id', async (req, res) => {
     try {
+        const adminId = req.user.id;
+
         const { data, error } = await supabaseAdmin
             .from('blogs')
             .select('*')
             .eq('id', req.params.id)
+            .eq('admin_id', adminId)
             .single();
 
         if (error) {
@@ -93,6 +99,7 @@ router.get('/:id', async (req, res) => {
 // POST /api/blogs — Create a new blog with optional image
 router.post('/', upload.single('image'), async (req, res) => {
     try {
+        const adminId = req.user.id;
         const { topic, published_date, title, content, title2, content2 } = req.body;
 
         if (!title || !content) {
@@ -111,6 +118,7 @@ router.post('/', upload.single('image'), async (req, res) => {
         const { data, error } = await supabaseAdmin
             .from('blogs')
             .insert({
+                admin_id: adminId,
                 topic,
                 published_date: published_date || null,
                 title,
@@ -136,21 +144,23 @@ router.post('/', upload.single('image'), async (req, res) => {
     }
 });
 
-// PUT /api/blogs/:id — Update a blog (optionally replace image)
+// PUT /api/blogs/:id — Update a blog (must belong to this admin)
 router.put('/:id', upload.single('image'), async (req, res) => {
     try {
+        const adminId = req.user.id;
         const { topic, published_date, title, content, title2, content2 } = req.body;
         const blogId = req.params.id;
 
-        // Fetch existing blog to get old image path
+        // Fetch existing blog — verify ownership
         const { data: existing, error: fetchError } = await supabaseAdmin
             .from('blogs')
             .select('*')
             .eq('id', blogId)
+            .eq('admin_id', adminId)
             .single();
 
-        if (fetchError) {
-            return res.status(404).json({ error: 'Blog not found' });
+        if (fetchError || !existing) {
+            return res.status(404).json({ error: 'Blog not found or access denied' });
         }
 
         const updateData = {
@@ -180,6 +190,7 @@ router.put('/:id', upload.single('image'), async (req, res) => {
             .from('blogs')
             .update(updateData)
             .eq('id', blogId)
+            .eq('admin_id', adminId)
             .select()
             .single();
 
@@ -194,27 +205,30 @@ router.put('/:id', upload.single('image'), async (req, res) => {
     }
 });
 
-// DELETE /api/blogs/:id — Delete a blog and its image
+// DELETE /api/blogs/:id — Delete a blog (must belong to this admin)
 router.delete('/:id', async (req, res) => {
     try {
+        const adminId = req.user.id;
         const blogId = req.params.id;
 
-        // Fetch blog to get image path for cleanup
+        // Fetch blog to verify ownership and get image path
         const { data: existing, error: fetchError } = await supabaseAdmin
             .from('blogs')
-            .select('image_path')
+            .select('image_path, admin_id')
             .eq('id', blogId)
+            .eq('admin_id', adminId)
             .single();
 
-        if (fetchError) {
-            return res.status(404).json({ error: 'Blog not found' });
+        if (fetchError || !existing) {
+            return res.status(404).json({ error: 'Blog not found or access denied' });
         }
 
         // Delete from database
         const { error } = await supabaseAdmin
             .from('blogs')
             .delete()
-            .eq('id', blogId);
+            .eq('id', blogId)
+            .eq('admin_id', adminId);
 
         if (error) {
             return res.status(500).json({ error: error.message });

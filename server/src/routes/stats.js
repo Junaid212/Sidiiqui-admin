@@ -99,12 +99,15 @@ router.get('/consultations-count', async (req, res) => {
     }
 });
 
-// GET /api/stats/blogs-count — Quick count of total blogs
+// GET /api/stats/blogs-count — Count of blogs owned by the authenticated admin
 router.get('/blogs-count', async (req, res) => {
     try {
+        const adminId = req.user.id;
+
         const { count, error } = await supabaseAdmin
             .from('blogs')
-            .select('*', { count: 'exact', head: true });
+            .select('*', { count: 'exact', head: true })
+            .eq('admin_id', adminId);
 
         if (error) {
             return res.status(500).json({ error: error.message });

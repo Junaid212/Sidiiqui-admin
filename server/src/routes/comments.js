@@ -3,9 +3,24 @@ const router = express.Router();
 const { supabaseAdmin } = require('../config/supabase');
 
 // GET /api/comments/:blogId — Fetch all comments for a specific blog post
+// Only returns comments for blogs owned by this admin
 router.get('/:blogId', async (req, res) => {
     try {
         const { blogId } = req.params;
+        const adminId = req.user.id;
+
+        // Verify the blog belongs to this admin before returning its comments
+        const { data: blog, error: blogError } = await supabaseAdmin
+            .from('blogs')
+            .select('id')
+            .eq('id', blogId)
+            .eq('admin_id', adminId)
+            .single();
+
+        if (blogError || !blog) {
+            return res.status(404).json({ error: 'Blog not found or access denied' });
+        }
+
         const { data, error } = await supabaseAdmin
             .from('blog_comments')
             .select('*')
@@ -23,9 +38,10 @@ router.get('/:blogId', async (req, res) => {
     }
 });
 
-// POST /api/comments — Post a new comment or reply
+// POST /api/comments — Post a new admin reply to a comment
 router.post('/', async (req, res) => {
     try {
+        const adminId = req.user.id;
         const { blog_id, parent_id, user_name, content, is_admin } = req.body;
 
         const { data, error } = await supabaseAdmin
@@ -35,7 +51,9 @@ router.post('/', async (req, res) => {
                 parent_id: parent_id || null,
                 user_name,
                 content,
-                is_admin: is_admin || false
+                is_admin: is_admin || false,
+                // Tag admin replies with the admin's user ID
+                admin_id: is_admin ? adminId : null,
             }])
             .select()
             .single();
@@ -51,10 +69,34 @@ router.post('/', async (req, res) => {
     }
 });
 
-// DELETE /api/comments/:id — Delete a comment
+// DELETE /api/comments/:id — Delete a comment (only from admin-owned blogs)
 router.delete('/:id', async (req, res) => {
     try {
         const { id } = req.params;
+        const adminId = req.user.id;
+
+        // Fetch the comment to find its blog_id
+        const { data: comment, error: fetchError } = await supabaseAdmin
+            .from('blog_comments')
+            .select('id, blog_id')
+            .eq('id', id)
+            .single();
+
+        if (fetchError || !comment) {
+            return res.status(404).json({ error: 'Comment not found' });
+        }
+
+        // Verify the parent blog belongs to this admin
+        const { data: blog, error: blogError } = await supabaseAdmin
+            .from('blogs')
+            .select('id')
+            .eq('id', comment.blog_id)
+            .eq('admin_id', adminId)
+            .single();
+
+        if (blogError || !blog) {
+            return res.status(403).json({ error: 'Access denied: comment is on a blog you do not own' });
+        }
 
         const { error } = await supabaseAdmin
             .from('blog_comments')

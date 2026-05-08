@@ -142,3 +142,19 @@ CREATE POLICY "Anyone can delete comments"
 -- This must be done via Supabase Dashboard:
 --   Storage → New Bucket → Name: "blogs" → Public: ON
 -- ============================================
+
+-- ============================================
+-- MULTI-ADMIN ISOLATION MIGRATION
+-- Run supabase/migrations/add_admin_id_to_blogs.sql
+-- after the above schema to add per-admin ownership.
+--
+-- This migration adds:
+--   blogs.admin_id        UUID → auth.users(id)
+--   blog_comments.admin_id UUID → auth.users(id)
+--
+-- After applying the migration, each admin only sees
+-- their own blogs and comment threads in the dashboard.
+-- Public data (consultations, orders, contact_messages,
+-- course_clicks) remains shared across all admins since
+-- those records are submitted by end-users of the public site.
+-- ============================================
