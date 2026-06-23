@@ -14,6 +14,7 @@ const courseClicksRoutes = require('./routes/courseClicks');
 const signInsRoutes = require('./routes/signIns');
 const metricsRoutes = require('./routes/metrics');
 const contactMessagesRoutes = require('./routes/contactMessages');
+const questionnaireRoutes = require('./routes/questionnaire');
 const { requireAuth } = require('./middleware/auth');
 
 const app = express();
@@ -24,21 +25,28 @@ app.set('trust proxy', 1);
 
 // --- CORS Configuration ---
 const allowedOrigins = [
+    'https://admin.siddiqui.digital',
     // 'https://siddiqui.digital',
     // 'https://www.siddiqui.digital',
-    'https://admin.siddiqui.digital',
-    'http://localhost:3000',
-    'http://localhost:5173',
 ];
 
 const corsOptions = {
     origin: function (origin, callback) {
         // Allow requests with no origin (server-to-server, curl, Postman)
-        if (!origin || allowedOrigins.includes(origin)) {
-            callback(null, true);
-        } else {
-            callback(new Error(`CORS blocked: ${origin}`));
+        if (!origin) return callback(null, true);
+
+        // Allow ALL localhost origins in development (any port — Vite may use 5173, 5174, 5175, etc.)
+        if (origin.startsWith('http://localhost:') || origin.startsWith('http://127.0.0.1:')) {
+            return callback(null, true);
         }
+
+        // Allow specific production origins
+        if (allowedOrigins.includes(origin)) {
+            return callback(null, true);
+        }
+
+        console.warn(`[CORS] Blocked origin: ${origin}`);
+        callback(new Error(`CORS blocked: ${origin}`));
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
@@ -74,6 +82,7 @@ app.use('/api/course-clicks-details', requireAuth, courseClicksRoutes);
 app.use('/api/sign-ins-details', requireAuth, signInsRoutes);
 app.use('/api/admin/metrics', requireAuth, metricsRoutes);
 app.use('/api/contact-messages', requireAuth, contactMessagesRoutes);
+app.use('/api/questionnaire', requireAuth, questionnaireRoutes);
 
 app.use('/api/public/consultations', publicConsultationsRoutes);
 
@@ -142,13 +151,19 @@ app.use((req, res, next) => {
 });
 
 app.use((err, req, res, next) => {
-    console.error('Unhandled error:', err);
+    console.error('[Server] Unhandled error:', err?.message, err);
+
+    // CORS errors — return 403 with the real reason
+    if (err.message && err.message.startsWith('CORS blocked')) {
+        return res.status(403).json({ error: err.message });
+    }
 
     if (err.message && err.message.includes('Invalid file type')) {
         return res.status(400).json({ error: err.message });
     }
 
-    res.status(500).json({ error: 'Something went wrong!' });
+    // Return the real error message so the client can display it
+    res.status(500).json({ error: err?.message || 'Internal server error' });
 });
 
 // --- Start Server ---

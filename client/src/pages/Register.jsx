@@ -43,19 +43,23 @@ export default function Register() {
                 // Server auto-confirmed the user and returned a session — signed in immediately
                 toast.success('Account created successfully! Welcome aboard.');
                 navigate('/');
-            } else if (data?.user && !data?.session) {
-                // Fallback: email confirmation required
-                setConfirmSent(true);
-                toast.success('Check your email to confirm your account!');
+            } else if (data?.user) {
+                // User created but no session returned — redirect to login
+                toast.success('Account created! Please sign in to continue.');
+                navigate('/login');
             }
         } catch (err) {
-            const msg = err.message || '';
-            if (msg.toLowerCase().includes('already registered') || msg.toLowerCase().includes('already been registered')) {
+            const msg = (err.message || '').toLowerCase();
+            if (msg.includes('already registered') || msg.includes('already been registered') || msg.includes('already exists') || msg.includes('user already')) {
                 toast.error('This email is already registered. Try signing in instead.');
-            } else if (msg.toLowerCase().includes('rate limit') || msg.toLowerCase().includes('too many')) {
+            } else if (msg.includes('rate limit') || msg.includes('too many')) {
                 toast.error('Too many attempts. Please wait a moment and try again.');
+            } else if (msg.includes('invalid email') || msg.includes('email is invalid')) {
+                toast.error('Please enter a valid email address.');
+            } else if (msg.includes('password') && msg.includes('weak')) {
+                toast.error('Password is too weak. Use at least 6 characters.');
             } else {
-                toast.error(msg || 'Sign up failed');
+                toast.error(err.message || 'Sign up failed. Please try again.');
             }
         } finally {
             setLoading(false);

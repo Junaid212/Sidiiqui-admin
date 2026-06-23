@@ -11,6 +11,7 @@ import {
     HiOutlineCursorClick,
     HiOutlineUserGroup,
     HiOutlineMail,
+    HiOutlineClipboardList,
 } from 'react-icons/hi';
 import { useState } from 'react';
 
@@ -21,6 +22,7 @@ const navItems = [
     { to: '/consultations', icon: HiOutlineCalendar, label: 'Consultations' },
     { to: '/sign-ins', icon: HiOutlineUserGroup, label: 'Sign-Ins' },
     { to: '/contact-messages', icon: HiOutlineMail, label: 'Contact Messages' },
+    { to: '/questionnaire', icon: HiOutlineClipboardList, label: 'Questionnaire' },
     { to: '/blogs', icon: HiOutlineNewspaper, label: 'Blog Management' },
 ];
 

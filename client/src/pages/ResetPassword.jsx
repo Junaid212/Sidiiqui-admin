@@ -34,39 +34,71 @@ export default function ResetPassword() {
 
     const strength = getPasswordStrength(password);
 
-    // Supabase sends the recovery token in the URL hash — wait for the session
+    // Handle two reset-password flows:
+    // 1. NEW: ?token_hash=XXX&type=recovery in the URL (our custom direct link — works on any domain/port)
+    // 2. LEGACY: #access_token=... in the URL hash (Supabase default redirect — only works if domain is whitelisted)
     useEffect(() => {
         let settled = false;
 
-        const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-            // PASSWORD_RECOVERY = user clicked the reset link from email
-            // SIGNED_IN = Supabase exchanged the token and signed in the user
-            if (event === 'PASSWORD_RECOVERY' || (event === 'SIGNED_IN' && session)) {
-                settled = true;
-                setSessionReady(true);
+        async function handleTokenHash() {
+            const params = new URLSearchParams(window.location.search);
+            const tokenHash = params.get('token_hash');
+            const type = params.get('type');
+
+            if (tokenHash && type === 'recovery') {
+                // Exchange the token_hash for a Supabase session directly
+                const { error } = await supabase.auth.verifyOtp({
+                    token_hash: tokenHash,
+                    type: 'recovery',
+                });
+
+                if (error) {
+                    console.error('[ResetPassword] verifyOtp error:', error);
+                    settled = true;
+                    setError('Reset link is invalid or has expired. Please request a new one.');
+                } else {
+                    settled = true;
+                    setSessionReady(true);
+                    // Clean up the URL so the token isn't visible or reusable
+                    window.history.replaceState({}, '', '/reset-password');
+                }
+                return true; // handled
             }
+            return false; // not handled — fall through to legacy flow
+        }
+
+        handleTokenHash().then(handled => {
+            if (handled) return;
+
+            // Legacy flow: listen for PASSWORD_RECOVERY event from #access_token hash
+            const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+                if (event === 'PASSWORD_RECOVERY' || (event === 'SIGNED_IN' && session)) {
+                    settled = true;
+                    setSessionReady(true);
+                }
+            });
+
+            // Also check if we already have a valid session (e.g. user refreshed the page)
+            supabase.auth.getSession().then(({ data: { session } }) => {
+                if (session && !settled) {
+                    settled = true;
+                    setSessionReady(true);
+                }
+            });
+
+            // Timeout fallback — if no auth event fires within 6s, show error
+            const timer = setTimeout(() => {
+                if (!settled) {
+                    setSessionReady(false);
+                    setError('Reset link is invalid or has expired. Please request a new one.');
+                }
+            }, 6000);
+
+            return () => {
+                subscription.unsubscribe();
+                clearTimeout(timer);
+            };
         });
-
-        // Check if we already have a valid session (e.g. user refreshed this page)
-        supabase.auth.getSession().then(({ data: { session } }) => {
-            if (session) {
-                settled = true;
-                setSessionReady(true);
-            }
-        });
-
-        // Timeout fallback — if no auth event fires within 6s, stop spinning
-        const timer = setTimeout(() => {
-            if (!settled) {
-                setSessionReady(false);
-                setError('Reset link is invalid or has expired. Please request a new one.');
-            }
-        }, 6000);
-
-        return () => {
-            subscription.unsubscribe();
-            clearTimeout(timer);
-        };
     }, []);
 
     async function handleSubmit(e) {

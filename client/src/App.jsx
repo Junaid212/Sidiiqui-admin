@@ -16,6 +16,7 @@ import SignIns from './pages/SignIns';
 import ForgotPassword from './pages/ForgotPassword';
 import ResetPassword from './pages/ResetPassword';
 import ContactMessages from './pages/ContactMessages';
+import QuestionnaireAnalytics from './pages/QuestionnaireAnalytics';
 
 function ProtectedRoute({ children }) {
   const { isAuthenticated, loading } = useAuth();
@@ -79,6 +80,7 @@ function App() {
             <Route path="/blogs/:id/comments" element={<CommentManagement />} />
             <Route path="/sign-ins" element={<SignIns />} />
             <Route path="/contact-messages" element={<ContactMessages />} />
+            <Route path="/questionnaire" element={<QuestionnaireAnalytics />} />
           </Route>
 
           {/* Fallback */}
