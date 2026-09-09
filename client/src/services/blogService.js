@@ -57,6 +57,7 @@ export async function createBlog(blogData) {
         fd.append('title', blogData.title || '');
         fd.append('content', blogData.content || '');
         fd.append('topic', blogData.topic || '');
+        fd.append('topic2', blogData.topic2 || '');
         if (blogData.published_date) fd.append('published_date', blogData.published_date);
         if (blogData.title2) fd.append('title2', blogData.title2);
         if (blogData.content2) fd.append('content2', blogData.content2);
@@ -72,6 +73,7 @@ export async function createBlog(blogData) {
             title: blogData.title,
             content: blogData.content,
             topic: blogData.topic,
+            topic2: blogData.topic2 || null,
             published_date: blogData.published_date || new Date().toISOString().split('T')[0],
             title2: blogData.title2,
             content2: blogData.content2,
@@ -94,6 +96,7 @@ export async function updateBlog(id, blogData) {
         fd.append('title', blogData.title || '');
         fd.append('content', blogData.content || '');
         fd.append('topic', blogData.topic || '');
+        fd.append('topic2', blogData.topic2 || '');
         if (blogData.published_date) fd.append('published_date', blogData.published_date);
         if (blogData.title2) fd.append('title2', blogData.title2);
         if (blogData.content2) fd.append('content2', blogData.content2);
@@ -109,6 +112,7 @@ export async function updateBlog(id, blogData) {
             title: blogData.title,
             content: blogData.content,
             topic: blogData.topic,
+            topic2: blogData.topic2 || null,
             published_date: blogData.published_date,
             title2: blogData.title2,
             content2: blogData.content2,

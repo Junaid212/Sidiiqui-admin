@@ -54,7 +54,9 @@ export default function BlogDetails() {
 
             <header style={{ marginBottom: '40px', textAlign: 'center' }}>
                 <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '15px', color: 'var(--text-secondary)', marginBottom: '20px', fontSize: '0.95rem' }}>
-                    <span style={{ fontWeight: '600', color: 'var(--accent-primary)' }}>{blog.topic || 'General'}</span>
+                    <span style={{ fontWeight: '600', color: 'var(--accent-primary)' }}>
+                        {[blog.topic, blog.topic2].filter(Boolean).join(' • ') || 'General'}
+                    </span>
                     <span>•</span>
                     <span>{new Date(blog.published_date || blog.created_at).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</span>
                 </div>

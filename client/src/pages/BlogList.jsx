@@ -73,7 +73,10 @@ export default function BlogList() {
                                 </div>
                                 <div style={{ padding: '24px', flex: 1, display: 'flex', flexDirection: 'column' }}>
                                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-                                        <span style={{ fontWeight: '600', color: 'var(--accent-primary)' }}>{blog.topic || 'General'}</span>
+                                        <span style={{ fontWeight: '600', color: 'var(--accent-primary)', display: 'flex', gap: '6px' }}>
+                                            <span>{blog.topic || 'General'}</span>
+                                            {blog.topic2 && <span style={{ opacity: 0.75 }}>• {blog.topic2}</span>}
+                                        </span>
                                         <span>{new Date(blog.published_date || blog.created_at).toLocaleDateString()}</span>
                                     </div>
                                     <h3 style={{ fontSize: '1.3rem', fontWeight: '700', marginBottom: '12px', lineHeight: '1.4' }}>{blog.title}</h3>

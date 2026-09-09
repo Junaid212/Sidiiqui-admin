@@ -1,6 +1,7 @@
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import {
+    HiOutlineBookOpen,
     HiOutlineChartBar,
     HiOutlineCalendar,
     HiOutlineNewspaper,
@@ -18,6 +19,7 @@ import { useState } from 'react';
 const navItems = [
     { to: '/', icon: HiOutlineChartBar, label: 'Dashboard' },
     { to: '/orders', icon: HiOutlineShoppingCart, label: 'EBook Orders' },
+    { to: '/products', icon: HiOutlineBookOpen, label: 'Digital Products' },
     { to: '/course-interactions', icon: HiOutlineCursorClick, label: 'Course Clicks' },
     { to: '/consultations', icon: HiOutlineCalendar, label: 'Consultations' },
     { to: '/sign-ins', icon: HiOutlineUserGroup, label: 'Sign-Ins' },

@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react';
 export default function BlogForm({ blog, onSubmit, onCancel }) {
     const [title, setTitle] = useState('');
     const [topic, setTopic] = useState('');
+    const [topic2, setTopic2] = useState('');
     const [published_date, setPublishedDate] = useState('');
     const [content, setContent] = useState('');
     const [title2, setTitle2] = useState('');
@@ -14,7 +15,20 @@ export default function BlogForm({ blog, onSubmit, onCancel }) {
     useEffect(() => {
         if (blog) {
             setTitle(blog.title || '');
-            setTopic(blog.topic || '');
+
+            // Handle topic and topic2 (or split comma if stored merged)
+            if (blog.topic2) {
+                setTopic(blog.topic || '');
+                setTopic2(blog.topic2 || '');
+            } else if (blog.topic && blog.topic.includes(',')) {
+                const parts = blog.topic.split(',');
+                setTopic(parts[0]?.trim() || '');
+                setTopic2(parts.slice(1).join(',').trim());
+            } else {
+                setTopic(blog.topic || '');
+                setTopic2('');
+            }
+
             setPublishedDate(blog.published_date ? new Date(blog.published_date).toISOString().split('T')[0] : '');
             setContent(blog.content || '');
             setTitle2(blog.title2 || '');
@@ -40,12 +54,13 @@ export default function BlogForm({ blog, onSubmit, onCancel }) {
             const formData = {
                 title,
                 topic,
+                topic2,
                 published_date,
                 content,
                 title2,
                 content2,
                 imageFile: image,
-                image_url: preview, // pass the old one if unedited
+                image_url: preview,
                 image_path: blog ? blog.image_path : null
             };
             await onSubmit(formData);
@@ -78,17 +93,48 @@ export default function BlogForm({ blog, onSubmit, onCancel }) {
                         />
                     </div>
 
-                    <div className="form-group">
-                        <label htmlFor="blog-topic">Topic</label>
-                        <input
-                            id="blog-topic"
-                            type="text"
-                            className="form-input"
-                            value={topic}
-                            onChange={(e) => setTopic(e.target.value)}
-                            placeholder="e.g. Technology, Health"
-                        />
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px' }}>
+                        <div className="form-group">
+                            <label htmlFor="blog-topic">Primary Category</label>
+                            <input
+                                id="blog-topic"
+                                type="text"
+                                className="form-input"
+                                value={topic}
+                                onChange={(e) => setTopic(e.target.value)}
+                                placeholder="e.g. Leadership, Digital Marketing"
+                                list="category-suggestions"
+                            />
+                        </div>
+
+                        <div className="form-group">
+                            <label htmlFor="blog-topic2">
+                                Secondary Category <span style={{ fontSize: '0.8rem', opacity: 0.7 }}>(Interlinked)</span>
+                            </label>
+                            <input
+                                id="blog-topic2"
+                                type="text"
+                                className="form-input"
+                                value={topic2}
+                                onChange={(e) => setTopic2(e.target.value)}
+                                placeholder="e.g. Strategy, Entrepreneurship"
+                                list="category-suggestions"
+                            />
+                        </div>
                     </div>
+                    <small style={{ color: 'var(--text-secondary, #888)', fontSize: '0.8rem', marginTop: '-8px', marginBottom: '16px', display: 'block' }}>
+                        💡 Interlink this blog with multiple categories so readers can access it from either category filter on the website.
+                    </small>
+
+                    <datalist id="category-suggestions">
+                        <option value="Leadership" />
+                        <option value="Digital Marketing" />
+                        <option value="Team Leadership" />
+                        <option value="Strategy" />
+                        <option value="Entrepreneurship" />
+                        <option value="Business Management" />
+                        <option value="Brand Leadership" />
+                    </datalist>
 
                     <div className="form-group">
                         <label htmlFor="blog-date">Publish Date</label>

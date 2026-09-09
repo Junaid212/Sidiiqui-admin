@@ -51,15 +51,12 @@ async function deleteImage(imagePath) {
     }
 }
 
-// GET /api/blogs — List only THIS admin's blogs
+// GET /api/blogs — List all blogs for the admin panel
 router.get('/', async (req, res) => {
     try {
-        const adminId = req.user.id;
-
         const { data, error } = await supabaseAdmin
             .from('blogs')
             .select('*')
-            .eq('admin_id', adminId)
             .order('created_at', { ascending: false });
 
         if (error) {
@@ -73,19 +70,16 @@ router.get('/', async (req, res) => {
     }
 });
 
-// GET /api/blogs/:id — Get single blog (must belong to this admin)
+// GET /api/blogs/:id — Get single blog
 router.get('/:id', async (req, res) => {
     try {
-        const adminId = req.user.id;
-
         const { data, error } = await supabaseAdmin
             .from('blogs')
             .select('*')
             .eq('id', req.params.id)
-            .eq('admin_id', adminId)
             .single();
 
-        if (error) {
+        if (error || !data) {
             return res.status(404).json({ error: 'Blog not found' });
         }
 
@@ -99,8 +93,8 @@ router.get('/:id', async (req, res) => {
 // POST /api/blogs — Create a new blog with optional image
 router.post('/', upload.single('image'), async (req, res) => {
     try {
-        const adminId = req.user.id;
-        const { topic, published_date, title, content, title2, content2 } = req.body;
+        const adminId = req.user?.id || '3417e953-65a4-4f74-aefb-85847c4644ab';
+        const { topic, topic2, published_date, title, content, title2, content2 } = req.body;
 
         if (!title || !content) {
             return res.status(400).json({ error: 'Title and content are required' });
@@ -115,24 +109,42 @@ router.post('/', upload.single('image'), async (req, res) => {
             image_path = result.path;
         }
 
-        const { data, error } = await supabaseAdmin
+        const insertPayload = {
+            admin_id: adminId,
+            topic: topic?.trim() || null,
+            topic2: topic2?.trim() || null,
+            published_date: published_date || null,
+            title,
+            content,
+            title2,
+            content2,
+            image_url,
+            image_path,
+        };
+
+        let { data, error } = await supabaseAdmin
             .from('blogs')
-            .insert({
-                admin_id: adminId,
-                topic,
-                published_date: published_date || null,
-                title,
-                content,
-                title2,
-                content2,
-                image_url,
-                image_path,
-            })
+            .insert(insertPayload)
             .select()
             .single();
 
+        // Fallback: if topic2 column doesn't exist yet in Supabase schema,
+        // merge into topic as comma-separated categories so creation never fails
+        if (error && (error.message?.includes('topic2') || error.code === '42703')) {
+            const mergedTopic = [topic?.trim(), topic2?.trim()].filter(Boolean).join(', ');
+            delete insertPayload.topic2;
+            insertPayload.topic = mergedTopic || null;
+
+            const retry = await supabaseAdmin
+                .from('blogs')
+                .insert(insertPayload)
+                .select()
+                .single();
+            data = retry.data;
+            error = retry.error;
+        }
+
         if (error) {
-            // Clean up uploaded image if DB insert fails
             if (image_path) await deleteImage(image_path);
             return res.status(500).json({ error: error.message });
         }
@@ -144,55 +156,67 @@ router.post('/', upload.single('image'), async (req, res) => {
     }
 });
 
-// PUT /api/blogs/:id — Update a blog (must belong to this admin)
+// PUT /api/blogs/:id — Update a blog
 router.put('/:id', upload.single('image'), async (req, res) => {
     try {
-        const adminId = req.user.id;
-        const { topic, published_date, title, content, title2, content2 } = req.body;
+        const { topic, topic2, published_date, title, content, title2, content2 } = req.body;
         const blogId = req.params.id;
 
-        // Fetch existing blog — verify ownership
         const { data: existing, error: fetchError } = await supabaseAdmin
             .from('blogs')
             .select('*')
             .eq('id', blogId)
-            .eq('admin_id', adminId)
             .single();
 
         if (fetchError || !existing) {
-            return res.status(404).json({ error: 'Blog not found or access denied' });
+            return res.status(404).json({ error: 'Blog not found' });
         }
 
         const updateData = {
             updated_at: new Date().toISOString(),
         };
 
-        if (topic !== undefined) updateData.topic = topic;
+        if (topic !== undefined) updateData.topic = topic?.trim() || null;
+        if (topic2 !== undefined) updateData.topic2 = topic2?.trim() || null;
         if (published_date !== undefined) updateData.published_date = published_date || null;
         if (title !== undefined) updateData.title = title;
         if (content !== undefined) updateData.content = content;
         if (title2 !== undefined) updateData.title2 = title2;
         if (content2 !== undefined) updateData.content2 = content2;
 
-        // If a new image is uploaded, replace the old one
         if (req.file) {
-            // Delete old image
             if (existing.image_path) {
                 await deleteImage(existing.image_path);
             }
-
             const result = await uploadImage(req.file);
             updateData.image_url = result.url;
             updateData.image_path = result.path;
         }
 
-        const { data, error } = await supabaseAdmin
+        let { data, error } = await supabaseAdmin
             .from('blogs')
             .update(updateData)
             .eq('id', blogId)
-            .eq('admin_id', adminId)
             .select()
             .single();
+
+        // Fallback: if topic2 column doesn't exist yet, merge into topic
+        if (error && (error.message?.includes('topic2') || error.code === '42703')) {
+            const mergedTopic = [topic !== undefined ? topic?.trim() : existing.topic, topic2?.trim()]
+                .filter(Boolean)
+                .join(', ');
+            delete updateData.topic2;
+            updateData.topic = mergedTopic || null;
+
+            const retry = await supabaseAdmin
+                .from('blogs')
+                .update(updateData)
+                .eq('id', blogId)
+                .select()
+                .single();
+            data = retry.data;
+            error = retry.error;
+        }
 
         if (error) {
             return res.status(500).json({ error: error.message });
@@ -205,30 +229,36 @@ router.put('/:id', upload.single('image'), async (req, res) => {
     }
 });
 
-// DELETE /api/blogs/:id — Delete a blog (must belong to this admin)
+// DELETE /api/blogs/:id — Delete a blog
 router.delete('/:id', async (req, res) => {
     try {
-        const adminId = req.user.id;
         const blogId = req.params.id;
 
-        // Fetch blog to verify ownership and get image path
         const { data: existing, error: fetchError } = await supabaseAdmin
             .from('blogs')
-            .select('image_path, admin_id')
+            .select('image_path')
             .eq('id', blogId)
-            .eq('admin_id', adminId)
             .single();
 
         if (fetchError || !existing) {
-            return res.status(404).json({ error: 'Blog not found or access denied' });
+            return res.status(404).json({ error: 'Blog not found' });
+        }
+
+        // Delete associated comments first to avoid foreign key errors
+        try {
+            await supabaseAdmin
+                .from('blog_comments')
+                .delete()
+                .eq('blog_id', blogId);
+        } catch (cErr) {
+            console.warn('Comments deletion notice:', cErr?.message);
         }
 
         // Delete from database
         const { error } = await supabaseAdmin
             .from('blogs')
             .delete()
-            .eq('id', blogId)
-            .eq('admin_id', adminId);
+            .eq('id', blogId);
 
         if (error) {
             return res.status(500).json({ error: error.message });

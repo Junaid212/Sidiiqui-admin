@@ -18,8 +18,13 @@ export async function apiRequest(endpoint, options = {}) {
         },
     };
 
+    // Auto-serialize plain object body to JSON if not FormData or already stringified
+    if (config.body && !(config.body instanceof FormData) && typeof config.body === 'object') {
+        config.body = JSON.stringify(config.body);
+    }
+
     // Don't set Content-Type for FormData (browser will set multipart boundary)
-    if (!(options.body instanceof FormData)) {
+    if (!(config.body instanceof FormData)) {
         config.headers['Content-Type'] = 'application/json';
     }
 
