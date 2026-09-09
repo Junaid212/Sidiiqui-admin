@@ -160,23 +160,39 @@ router.post('/upload-cover', uploadCoverMiddleware, async (req, res) => {
   }
 });
 
-// POST /api/products — Create new digital product (supports JSON or multipart/form-data)
+// POST /api/products — Create new digital product
 router.post('/', uploadCoverMiddleware, async (req, res) => {
   try {
-    let { title, description, price, currency, format, cover_image, file_path, download_limit, download_expiry_hours, active, sku, product_type, author } = req.body;
+    let {
+      title,
+      description,
+      price,
+      currency,
+      format,
+      cover_image,
+      file_path,
+      download_limit,
+      download_expiry_hours,
+      active,
+      sku,
+      product_type,
+      author
+    } = req.body;
 
     if (!title || price === undefined || price === '') {
-      return res.status(400).json({ error: 'Title and Price are required' });
+      return res.status(400).json({
+        error: 'Title and Price are required'
+      });
     }
 
-    // If an image file was attached via FormData, upload it
+    // Upload cover image if provided
     if (req.file) {
       const uploadRes = await uploadProductCover(req.file);
       cover_image = uploadRes.url;
     }
 
-    const fullProduct = normalizeProduct({
-      title,
+    const dbPayload = {
+      title: String(title).trim(),
       description: description || '',
       price: Number(price),
       currency: currency || 'AED',
@@ -188,16 +204,7 @@ router.post('/', uploadCoverMiddleware, async (req, res) => {
       active: active !== 'false' && active !== false,
       sku: sku || `PROD-${Date.now().toString(36).toUpperCase()}`,
       product_type: product_type || 'ebook',
-      author: author || 'M. Q. Siddiqui',
-      created_at: new Date().toISOString()
-    });
-
-    // Only insert columns known to exist in the database table 'ebooks'
-    const dbPayload = {
-      title: fullProduct.title,
-      description: fullProduct.description,
-      price: fullProduct.price,
-      cover_image: fullProduct.cover_image
+      author: author || 'M. Q. Siddiqui'
     };
 
     const { data, error } = await supabaseAdmin
@@ -207,52 +214,133 @@ router.post('/', uploadCoverMiddleware, async (req, res) => {
       .single();
 
     if (error) {
-      console.warn('DB insert error (falling back to generated payload):', error.message);
-      return res.status(201).json({ product: fullProduct });
+      console.error('DB insert error:', error);
+
+      return res.status(500).json({
+        error: error.message || 'Failed to create product'
+      });
     }
 
-    return res.status(201).json({ product: { ...fullProduct, id: String(data.id) } });
+    return res.status(201).json({
+      product: normalizeProduct(data)
+    });
+
   } catch (err) {
     console.error('Create product error:', err);
-    return res.status(500).json({ error: 'Internal server error' });
+
+    return res.status(500).json({
+      error: err.message || 'Internal server error'
+    });
   }
 });
 
-// PUT /api/products/:id — Update digital product (supports JSON or multipart/form-data)
+// PUT /api/products/:id — Update digital product
 router.put('/:id', uploadCoverMiddleware, async (req, res) => {
   try {
     const { id } = req.params;
+
     const updates = { ...req.body };
 
-    // If an image file was attached via FormData, upload it
+    // Upload new cover image if provided
     if (req.file) {
       const uploadRes = await uploadProductCover(req.file);
       updates.cover_image = uploadRes.url;
     }
 
-    // Filter update to only database-supported columns
     const dbPayload = {};
-    if (updates.title !== undefined) dbPayload.title = updates.title;
-    if (updates.description !== undefined) dbPayload.description = updates.description;
-    if (updates.price !== undefined) dbPayload.price = Number(updates.price);
-    if (updates.cover_image !== undefined) dbPayload.cover_image = updates.cover_image;
 
-    if (Object.keys(dbPayload).length > 0) {
-      const { data, error } = await supabaseAdmin
-        .from('ebooks')
-        .update(dbPayload)
-        .eq('id', id)
-        .select();
-
-      if (error) {
-        console.warn('DB update error:', error.message);
-      }
+    if (updates.title !== undefined) {
+      dbPayload.title = String(updates.title).trim();
     }
 
-    return res.json({ product: normalizeProduct({ ...updates, id }) });
+    if (updates.description !== undefined) {
+      dbPayload.description = updates.description;
+    }
+
+    if (updates.price !== undefined) {
+      dbPayload.price = Number(updates.price);
+    }
+
+    if (updates.currency !== undefined) {
+      dbPayload.currency = updates.currency;
+    }
+
+    if (updates.format !== undefined) {
+      dbPayload.format = updates.format;
+    }
+
+    if (updates.cover_image !== undefined) {
+      dbPayload.cover_image = updates.cover_image;
+    }
+
+    if (updates.file_path !== undefined) {
+      dbPayload.file_path = updates.file_path;
+    }
+
+    if (updates.download_limit !== undefined) {
+      dbPayload.download_limit = Number(updates.download_limit);
+    }
+
+    if (updates.download_expiry_hours !== undefined) {
+      dbPayload.download_expiry_hours =
+        Number(updates.download_expiry_hours);
+    }
+
+    if (updates.active !== undefined) {
+      dbPayload.active =
+        updates.active !== 'false' &&
+        updates.active !== false;
+    }
+
+    if (updates.sku !== undefined) {
+      dbPayload.sku = updates.sku;
+    }
+
+    if (updates.product_type !== undefined) {
+      dbPayload.product_type = updates.product_type;
+    }
+
+    if (updates.author !== undefined) {
+      dbPayload.author = updates.author;
+    }
+
+    if (Object.keys(dbPayload).length === 0) {
+      return res.status(400).json({
+        error: 'No valid fields to update'
+      });
+    }
+
+    const { data, error } = await supabaseAdmin
+      .from('ebooks')
+      .update(dbPayload)
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) {
+      console.error('DB update error:', error);
+
+      return res.status(500).json({
+        error: error.message || 'Failed to update product'
+      });
+    }
+
+    if (!data) {
+      return res.status(404).json({
+        error: 'Product not found'
+      });
+    }
+
+    return res.json({
+      product: normalizeProduct(data)
+    });
+
   } catch (err) {
     console.error('Update product error:', err);
-    return res.status(500).json({ error: 'Internal server error' });
+
+    return res.status(500).json({
+      error: err.message || 'Internal server error'
+    });
   }
 });
 
