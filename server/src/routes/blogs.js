@@ -90,6 +90,19 @@ router.get('/:id', async (req, res) => {
     }
 });
 
+// Helper to normalize and sanitize category strings (supports array or comma-separated string)
+function sanitizeTopic(val) {
+    if (Array.isArray(val)) {
+        const cleaned = val.map(s => String(s).trim()).filter(Boolean);
+        return cleaned.length > 0 ? cleaned.join(', ') : null;
+    }
+    if (typeof val === 'string') {
+        const cleaned = val.split(',').map(s => s.trim()).filter(Boolean);
+        return cleaned.length > 0 ? cleaned.join(', ') : null;
+    }
+    return null;
+}
+
 // POST /api/blogs — Create a new blog with optional image
 router.post('/', upload.single('image'), async (req, res) => {
     try {
@@ -109,10 +122,13 @@ router.post('/', upload.single('image'), async (req, res) => {
             image_path = result.path;
         }
 
+        const formattedTopic = topic ? (typeof topic === 'string' ? topic.trim() : String(topic).trim()) : null;
+        const formattedTopic2 = sanitizeTopic(topic2);
+
         const insertPayload = {
             admin_id: adminId,
-            topic: topic?.trim() || null,
-            topic2: topic2?.trim() || null,
+            topic: formattedTopic || null,
+            topic2: formattedTopic2 || null,
             published_date: published_date || null,
             title,
             content,
@@ -131,7 +147,7 @@ router.post('/', upload.single('image'), async (req, res) => {
         // Fallback: if topic2 column doesn't exist yet in Supabase schema,
         // merge into topic as comma-separated categories so creation never fails
         if (error && (error.message?.includes('topic2') || error.code === '42703')) {
-            const mergedTopic = [topic?.trim(), topic2?.trim()].filter(Boolean).join(', ');
+            const mergedTopic = [formattedTopic, formattedTopic2].filter(Boolean).join(', ');
             delete insertPayload.topic2;
             insertPayload.topic = mergedTopic || null;
 
@@ -176,8 +192,12 @@ router.put('/:id', upload.single('image'), async (req, res) => {
             updated_at: new Date().toISOString(),
         };
 
-        if (topic !== undefined) updateData.topic = topic?.trim() || null;
-        if (topic2 !== undefined) updateData.topic2 = topic2?.trim() || null;
+        if (topic !== undefined) {
+            updateData.topic = topic ? (typeof topic === 'string' ? topic.trim() : String(topic).trim()) : null;
+        }
+        if (topic2 !== undefined) {
+            updateData.topic2 = sanitizeTopic(topic2);
+        }
         if (published_date !== undefined) updateData.published_date = published_date || null;
         if (title !== undefined) updateData.title = title;
         if (content !== undefined) updateData.content = content;
@@ -202,7 +222,10 @@ router.put('/:id', upload.single('image'), async (req, res) => {
 
         // Fallback: if topic2 column doesn't exist yet, merge into topic
         if (error && (error.message?.includes('topic2') || error.code === '42703')) {
-            const mergedTopic = [topic !== undefined ? topic?.trim() : existing.topic, topic2?.trim()]
+            const mergedTopic = [
+                topic !== undefined ? (topic ? topic.trim() : null) : existing.topic,
+                sanitizeTopic(topic2)
+            ]
                 .filter(Boolean)
                 .join(', ');
             delete updateData.topic2;

@@ -43,6 +43,13 @@ export async function uploadCoverImage(file) {
     return { publicUrl: data.publicUrl, filePath };
 }
 
+function formatTopic2(val) {
+    if (Array.isArray(val)) {
+        return val.map(s => String(s).trim()).filter(Boolean).join(', ');
+    }
+    return val ? String(val).trim() : '';
+}
+
 /**
  * Create a new Blog record via admin backend.
  * If the formData contains an imageFile, sends as multipart/form-data
@@ -50,6 +57,8 @@ export async function uploadCoverImage(file) {
  * Otherwise, sends as JSON (no new image).
  */
 export async function createBlog(blogData) {
+    const formattedTopic2 = formatTopic2(blogData.topic2);
+
     if (blogData.imageFile) {
         // Server-side image upload via multer
         const fd = new FormData();
@@ -57,7 +66,7 @@ export async function createBlog(blogData) {
         fd.append('title', blogData.title || '');
         fd.append('content', blogData.content || '');
         fd.append('topic', blogData.topic || '');
-        fd.append('topic2', blogData.topic2 || '');
+        fd.append('topic2', formattedTopic2);
         if (blogData.published_date) fd.append('published_date', blogData.published_date);
         if (blogData.title2) fd.append('title2', blogData.title2);
         if (blogData.content2) fd.append('content2', blogData.content2);
@@ -73,7 +82,7 @@ export async function createBlog(blogData) {
             title: blogData.title,
             content: blogData.content,
             topic: blogData.topic,
-            topic2: blogData.topic2 || null,
+            topic2: formattedTopic2 || null,
             published_date: blogData.published_date || new Date().toISOString().split('T')[0],
             title2: blogData.title2,
             content2: blogData.content2,
@@ -90,13 +99,15 @@ export async function createBlog(blogData) {
  * can delete the old image and upload the new one via service role.
  */
 export async function updateBlog(id, blogData) {
+    const formattedTopic2 = formatTopic2(blogData.topic2);
+
     if (blogData.imageFile) {
         const fd = new FormData();
         fd.append('image', blogData.imageFile);
         fd.append('title', blogData.title || '');
         fd.append('content', blogData.content || '');
         fd.append('topic', blogData.topic || '');
-        fd.append('topic2', blogData.topic2 || '');
+        fd.append('topic2', formattedTopic2);
         if (blogData.published_date) fd.append('published_date', blogData.published_date);
         if (blogData.title2) fd.append('title2', blogData.title2);
         if (blogData.content2) fd.append('content2', blogData.content2);
@@ -112,7 +123,7 @@ export async function updateBlog(id, blogData) {
             title: blogData.title,
             content: blogData.content,
             topic: blogData.topic,
-            topic2: blogData.topic2 || null,
+            topic2: formattedTopic2 || null,
             published_date: blogData.published_date,
             title2: blogData.title2,
             content2: blogData.content2,

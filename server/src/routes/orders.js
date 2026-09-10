@@ -36,7 +36,7 @@ router.get('/', async (req, res) => {
             const profile = profileMap[order.user_id] || {};
             const email = order.email || profile.email || 'guest@customer.com';
             const customerName = order.customer_name || profile.full_name || email.split('@')[0];
-            const bookName = order.book_name || order.ebook_title || 'Marketing Reclassified';
+            const bookName = order.book_name || order.ebook_title || 'Digital Publication';
             const orderNumber = order.order_number || `ORD-${order.id ? order.id.substring(0, 8).toUpperCase() : String(idx + 1001)}`;
 
             return {

@@ -75,7 +75,14 @@ export default function BlogList() {
                                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
                                         <span style={{ fontWeight: '600', color: 'var(--accent-primary)', display: 'flex', gap: '6px' }}>
                                             <span>{blog.topic || 'General'}</span>
-                                            {blog.topic2 && <span style={{ opacity: 0.75 }}>• {blog.topic2}</span>}
+                                            {blog.topic2 && (
+                                                <span style={{ opacity: 0.75 }}>
+                                                    • {(typeof blog.topic2 === 'string' ? blog.topic2.split(',') : blog.topic2)
+                                                        .map(s => String(s).trim())
+                                                        .filter(Boolean)
+                                                        .join(' • ')}
+                                                </span>
+                                            )}
                                         </span>
                                         <span>{new Date(blog.published_date || blog.created_at).toLocaleDateString()}</span>
                                     </div>

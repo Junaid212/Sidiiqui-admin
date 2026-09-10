@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { apiRequest } from '../config/api';
 import toast from 'react-hot-toast';
-import { HiOutlinePlus, HiOutlinePencil, HiOutlineTrash, HiOutlineCheck, HiOutlineX, HiOutlineUpload, HiOutlinePhotograph } from 'react-icons/hi';
+import { HiOutlinePlus, HiOutlinePencil, HiOutlineTrash, HiOutlineCheck, HiOutlineX, HiOutlineUpload, HiOutlinePhotograph, HiOutlineDocumentText } from 'react-icons/hi';
 
 export default function DigitalProducts() {
     const [products, setProducts] = useState([]);
@@ -11,7 +11,9 @@ export default function DigitalProducts() {
     const [editingProduct, setEditingProduct] = useState(null);
     const [coverImageFile, setCoverImageFile] = useState(null);
     const [coverImagePreview, setCoverImagePreview] = useState('/assets/images/img/30.webp');
+    const [productFile, setProductFile] = useState(null);
     const fileInputRef = useRef(null);
+    const productFileInputRef = useRef(null);
     const [formData, setFormData] = useState({
         title: '',
         sku: '',
@@ -22,6 +24,7 @@ export default function DigitalProducts() {
         format: 'PDF',
         description: '',
         cover_image: '/assets/images/img/30.webp',
+        file_path: '',
         download_limit: 3,
         download_expiry_hours: 72,
         active: true
@@ -46,6 +49,8 @@ export default function DigitalProducts() {
     function openCreateModal() {
         setEditingProduct(null);
         setCoverImageFile(null);
+        setProductFile(null);
+        if (productFileInputRef.current) productFileInputRef.current.value = '';
         setCoverImagePreview('/assets/images/img/30.webp');
         setFormData({
             title: '',
@@ -57,6 +62,7 @@ export default function DigitalProducts() {
             format: 'PDF',
             description: '',
             cover_image: '/assets/images/img/30.webp',
+            file_path: '',
             download_limit: 3,
             download_expiry_hours: 72,
             active: true
@@ -67,6 +73,8 @@ export default function DigitalProducts() {
     function openEditModal(prod) {
         setEditingProduct(prod);
         setCoverImageFile(null);
+        setProductFile(null);
+        if (productFileInputRef.current) productFileInputRef.current.value = '';
         const currentCover = prod.cover_image || '/assets/images/img/30.webp';
         setCoverImagePreview(currentCover);
         setFormData({
@@ -79,6 +87,7 @@ export default function DigitalProducts() {
             format: prod.format || 'PDF',
             description: prod.description || '',
             cover_image: currentCover,
+            file_path: prod.file_path || '',
             download_limit: prod.download_limit || 3,
             download_expiry_hours: prod.download_expiry_hours || 72,
             active: prod.active !== false
@@ -120,22 +129,48 @@ export default function DigitalProducts() {
         setFormData((prev) => ({ ...prev, cover_image: fallback }));
     }
 
+    function handleProductFileChange(e) {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        // Max 50MB for digital products / ebooks
+        const MAX_FILE_SIZE = 50 * 1024 * 1024;
+        if (file.size > MAX_FILE_SIZE) {
+            const sizeMB = (file.size / (1024 * 1024)).toFixed(2);
+            toast.error(`Product file size (${sizeMB} MB) exceeds 50MB limit.`);
+            if (productFileInputRef.current) productFileInputRef.current.value = '';
+            return;
+        }
+
+        setProductFile(file);
+        const ext = file.name.split('.').pop()?.toUpperCase() || 'PDF';
+        setFormData((prev) => ({ ...prev, format: ext }));
+        toast.success(`Ebook file selected: ${file.name} (${(file.size / (1024 * 1024)).toFixed(2)} MB)`);
+    }
+
+    function handleRemoveProductFile() {
+        setProductFile(null);
+        if (productFileInputRef.current) productFileInputRef.current.value = '';
+    }
+
     async function handleSubmit(e) {
         e.preventDefault();
         setSaving(true);
         try {
-            if (coverImageFile) {
-                // If a file is selected, upload via multipart FormData
+            if (coverImageFile || productFile) {
+                // If any file is selected, upload via multipart FormData
                 const fd = new FormData();
-                fd.append('cover_image', coverImageFile);
+                if (coverImageFile) fd.append('cover_image', coverImageFile);
+                if (productFile) fd.append('product_file', productFile);
                 fd.append('title', formData.title);
                 fd.append('sku', formData.sku);
                 fd.append('product_type', formData.product_type);
                 fd.append('author', formData.author);
                 fd.append('price', String(Number(formData.price) || 0));
                 fd.append('currency', formData.currency);
-                fd.append('format', formData.format);
+                fd.append('format', formData.format || 'PDF');
                 fd.append('description', formData.description || '');
+                if (formData.file_path) fd.append('file_path', formData.file_path);
                 fd.append('download_limit', String(Number(formData.download_limit) || 3));
                 fd.append('download_expiry_hours', String(Number(formData.download_expiry_hours) || 72));
                 fd.append('active', String(formData.active !== false));
@@ -145,13 +180,13 @@ export default function DigitalProducts() {
                         method: 'PUT',
                         body: fd
                     });
-                    toast.success('Product updated with new cover image');
+                    toast.success('Product updated with uploaded files');
                 } else {
                     await apiRequest('/products', {
                         method: 'POST',
                         body: fd
                     });
-                    toast.success('Digital product created with cover image');
+                    toast.success('Digital product created with files');
                 }
             } else {
                 // Otherwise send JSON payload
@@ -180,8 +215,8 @@ export default function DigitalProducts() {
             setModalOpen(false);
             fetchProducts();
         } catch (err) {
-            console.error('Save product error:', err);
             toast.error(err.message || 'Failed to save product');
+            console.error(err);
         } finally {
             setSaving(false);
         }
@@ -447,7 +482,7 @@ export default function DigitalProducts() {
                                         </div>
 
                                         {/* Optional custom URL fallback */}
-                                        {!coverImageFile && (
+                                        {/* {!coverImageFile && (
                                             <input
                                                 type="text"
                                                 placeholder="Or paste image URL (e.g. /assets/images/img/30.webp)"
@@ -468,7 +503,7 @@ export default function DigitalProducts() {
                                                     marginTop: '2px'
                                                 }}
                                             />
-                                        )}
+                                        )} */}
                                     </div>
                                 </div>
                             </div>
@@ -498,15 +533,95 @@ export default function DigitalProducts() {
                                     </select>
                                 </div>
                             </div>
+                            {/* Product File / Ebook Upload Option (replacing Format text input) */}
                             <div>
-                                <label style={{ display: 'block', fontSize: '0.8rem', color: '#a1a1aa', marginBottom: 4 }}>Format / Edition</label>
-                                <input
-                                    type="text"
-                                    value={formData.format}
-                                    onChange={(e) => setFormData({ ...formData, format: e.target.value })}
-                                    placeholder="PDF, ePub, Interactive Workbook"
-                                    style={{ width: '100%', padding: '10px 12px', background: '#28283d', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, color: '#fff' }}
-                                />
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                                    <label style={{ fontSize: '0.8rem', color: '#a1a1aa', fontWeight: '600', display: 'flex', alignItems: 'center', gap: 6 }}>
+                                        <HiOutlineDocumentText size={16} style={{ color: '#10b981' }} />
+                                        Product File / eBook
+                                    </label>
+                                    <span style={{ fontSize: '0.72rem', color: '#34d399', background: 'rgba(16, 185, 129, 0.1)', padding: '2px 8px', borderRadius: '4px', border: '1px solid rgba(16, 185, 129, 0.2)' }}>
+                                        Max 50 MB
+                                    </span>
+                                </div>
+
+                                <div style={{
+                                    border: '1.5px dashed rgba(16, 185, 129, 0.3)',
+                                    borderRadius: '10px',
+                                    padding: '12px 14px',
+                                    background: '#1a1a2b',
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                    gap: '8px'
+                                }}>
+                                    <input
+                                        ref={productFileInputRef}
+                                        type="file"
+                                        accept=".pdf,.epub,.mobi,.zip,.docx,application/pdf,application/epub+zip,application/zip"
+                                        onChange={handleProductFileChange}
+                                        style={{ display: 'none' }}
+                                    />
+
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                                        <button
+                                            type="button"
+                                            onClick={() => productFileInputRef.current?.click()}
+                                            style={{
+                                                display: 'inline-flex',
+                                                alignItems: 'center',
+                                                gap: '6px',
+                                                padding: '8px 14px',
+                                                background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                                                color: '#fff',
+                                                border: 'none',
+                                                borderRadius: '6px',
+                                                fontSize: '0.8rem',
+                                                fontWeight: '600',
+                                                cursor: 'pointer',
+                                                boxShadow: '0 2px 8px rgba(16, 185, 129, 0.3)',
+                                                transition: 'all 0.15s ease'
+                                            }}
+                                        >
+                                            <HiOutlineUpload size={16} />
+                                            {productFile ? 'Change Ebook File' : 'Upload Ebook / Product File'}
+                                        </button>
+
+                                        {productFile && (
+                                            <button
+                                                type="button"
+                                                onClick={handleRemoveProductFile}
+                                                style={{
+                                                    display: 'inline-flex',
+                                                    alignItems: 'center',
+                                                    gap: '4px',
+                                                    padding: '7px 10px',
+                                                    background: 'rgba(239, 68, 68, 0.12)',
+                                                    border: '1px solid rgba(239, 68, 68, 0.3)',
+                                                    borderRadius: '6px',
+                                                    color: '#f87171',
+                                                    fontSize: '0.75rem',
+                                                    cursor: 'pointer'
+                                                }}
+                                            >
+                                                <HiOutlineX size={14} /> Clear
+                                            </button>
+                                        )}
+                                    </div>
+
+                                    <div style={{ fontSize: '0.74rem', color: '#9ca3af' }}>
+                                        {productFile ? (
+                                            <span style={{ color: '#34d399', fontWeight: '500', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                                ✓ {productFile.name} ({(productFile.size / (1024 * 1024)).toFixed(2)} MB) • Format: <strong style={{ color: '#6ee7b7' }}>{formData.format || 'PDF'}</strong>
+                                            </span>
+                                        ) : formData.file_path ? (
+                                            <span style={{ color: '#60a5fa', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                                📄 Current file: <strong style={{ color: '#93c5fd' }}>{formData.file_path.split('/').pop()}</strong> ({formData.format || 'PDF'})
+                                            </span>
+                                        ) : (
+                                            <span>Supported: PDF, EPUB, MOBI, ZIP, DOCX (Max 50MB)</span>
+                                        )}
+                                    </div>
+                                </div>
                             </div>
                             <div>
                                 <label style={{ display: 'block', fontSize: '0.8rem', color: '#a1a1aa', marginBottom: 4 }}>Description</label>

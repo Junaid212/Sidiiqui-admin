@@ -130,15 +130,21 @@ app.get('/api/public/blogs', async (req, res) => {
 
         if (error) return res.status(500).json({ error: error.message });
 
-        // Helper to extract clean array of categories for any blog
+        // Helper to extract clean array of categories for any blog (handles arrays or comma strings)
+        const extractCategories = (val) => {
+            if (!val) return [];
+            if (Array.isArray(val)) return val.map(s => String(s).trim()).filter(Boolean);
+            if (typeof val === 'string') return val.split(',').map(s => s.trim()).filter(Boolean);
+            return [];
+        };
+
         const getCategories = (b) => {
             const list = [];
-            if (b.topic) {
-                b.topic.split(',').forEach(c => { const t = c.trim(); if (t) list.push(t); });
-            }
-            if (b.topic2) {
-                b.topic2.split(',').forEach(c => { const t = c.trim(); if (t && !list.includes(t)) list.push(t); });
-            }
+            [...extractCategories(b.topic), ...extractCategories(b.topic2)].forEach(t => {
+                if (t && !list.some(existing => existing.toLowerCase() === t.toLowerCase())) {
+                    list.push(t);
+                }
+            });
             return list;
         };
 
@@ -157,8 +163,8 @@ app.get('/api/public/blogs', async (req, res) => {
             const target = category.trim().toLowerCase();
             blogs = blogs.filter(b =>
                 b.categories.some(c => c.toLowerCase() === target) ||
-                (b.topic && b.topic.toLowerCase().includes(target)) ||
-                (b.topic2 && b.topic2.toLowerCase().includes(target))
+                (b.topic && String(b.topic).toLowerCase().includes(target)) ||
+                (b.topic2 && String(b.topic2).toLowerCase().includes(target))
             );
         }
 
@@ -179,23 +185,21 @@ app.get('/api/public/blogs/categories', async (req, res) => {
         if (error) return res.status(500).json({ error: error.message });
 
         // Extract unique, non-empty categories from topic, topic2 and comma-separated entries
+        const extractCategories = (val) => {
+            if (!val) return [];
+            if (Array.isArray(val)) return val.map(s => String(s).trim()).filter(Boolean);
+            if (typeof val === 'string') return val.split(',').map(s => s.trim()).filter(Boolean);
+            return [];
+        };
+
         const categorySet = new Set();
         (data || []).forEach(b => {
-            if (b.topic) {
-                b.topic.split(',').forEach(c => {
-                    const t = c.trim();
-                    if (t) categorySet.add(t);
-                });
-            }
-            if (b.topic2) {
-                b.topic2.split(',').forEach(c => {
-                    const t = c.trim();
-                    if (t) categorySet.add(t);
-                });
-            }
+            [...extractCategories(b.topic), ...extractCategories(b.topic2)].forEach(t => {
+                if (t) categorySet.add(t);
+            });
         });
 
-        const categories = [...categorySet].sort();
+        const categories = [...categorySet].sort((a, b) => a.localeCompare(b));
         return res.status(200).json({ categories });
     } catch (err) {
         return res.status(500).json({ error: 'Internal server error' });

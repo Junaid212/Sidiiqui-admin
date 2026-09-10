@@ -46,11 +46,14 @@ export default function BlogCard({ blog, onEdit, onDelete }) {
                             {blog.topic.toUpperCase()}
                         </span>
                     )}
-                    {blog.topic2 && (
-                        <span style={{ background: 'rgba(59, 130, 246, 0.1)', color: '#3b82f6', padding: '2px 8px', borderRadius: '4px' }}>
-                            {blog.topic2.toUpperCase()}
-                        </span>
-                    )}
+                    {blog.topic2 && (typeof blog.topic2 === 'string' ? blog.topic2.split(',') : blog.topic2)
+                        .map(s => String(s).trim())
+                        .filter(Boolean)
+                        .map((t, idx) => (
+                            <span key={idx} style={{ background: 'rgba(59, 130, 246, 0.1)', color: '#3b82f6', padding: '2px 8px', borderRadius: '4px' }}>
+                                {t.toUpperCase()}
+                            </span>
+                        ))}
                 </div>
                 <h3 className="blog-card__title">{blog.title}</h3>
                 <p className="blog-card__excerpt">
