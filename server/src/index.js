@@ -27,8 +27,8 @@ app.set('trust proxy', 1);
 // --- CORS Configuration ---
 const allowedOrigins = [
     'https://admin.siddiqui.digital',
-    // 'https://siddiqui.digital',
-    // 'https://www.siddiqui.digital',
+    'https://siddiqui.digital',
+    'https://www.siddiqui.digital',
 ];
 
 const corsOptions = {
