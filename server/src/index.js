@@ -33,19 +33,13 @@ const allowedOrigins = [
 
 const corsOptions = {
     origin: function (origin, callback) {
-        // Allow requests with no origin (server-to-server, curl, Postman)
         if (!origin) return callback(null, true);
-
-        // Allow ALL localhost origins in development (any port — Vite may use 5173, 5174, 5175, etc.)
         if (origin.startsWith('http://localhost:') || origin.startsWith('http://127.0.0.1:')) {
             return callback(null, true);
         }
-
-        // Allow specific production origins
         if (allowedOrigins.includes(origin)) {
             return callback(null, true);
         }
-
         console.warn(`[CORS] Blocked origin: ${origin}`);
         callback(new Error(`CORS blocked: ${origin}`));
     },
@@ -54,11 +48,9 @@ const corsOptions = {
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
 };
 
-// Handle CORS preflight (OPTIONS) for ALL routes — must come BEFORE route definitions
 app.options('*', cors(corsOptions));
 app.use(cors(corsOptions));
 
-// --- Body & Logging Middleware ---
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(morgan('dev'));
@@ -94,7 +86,6 @@ app.post('/api/public/contact', async (req, res) => {
         const { supabaseAdmin } = require('./config/supabase');
         const { name, email, subject, message } = req.body;
 
-        // Validation
         if (!name || !email || !subject || !message) {
             return res.status(400).json({ error: 'All fields are required.' });
         }
@@ -115,7 +106,7 @@ app.post('/api/public/contact', async (req, res) => {
     }
 });
 
-// Public route for blog listing (main site can fetch without auth)
+// Public route for blog listing
 app.get('/api/public/blogs', async (req, res) => {
     try {
         const { supabaseAdmin } = require('./config/supabase');
@@ -130,7 +121,6 @@ app.get('/api/public/blogs', async (req, res) => {
 
         if (error) return res.status(500).json({ error: error.message });
 
-        // Helper to extract clean array of categories for any blog (handles arrays or comma strings)
         const extractCategories = (val) => {
             if (!val) return [];
             if (Array.isArray(val)) return val.map(s => String(s).trim()).filter(Boolean);
@@ -158,7 +148,6 @@ app.get('/api/public/blogs', async (req, res) => {
             };
         });
 
-        // Filter by category if provided (matches topic, topic2, or any item in categories)
         if (category) {
             const target = category.trim().toLowerCase();
             blogs = blogs.filter(b =>
@@ -174,7 +163,7 @@ app.get('/api/public/blogs', async (req, res) => {
     }
 });
 
-// Public route for listing all distinct blog categories (from both topic and topic2)
+// Public route for listing all distinct blog categories
 app.get('/api/public/blogs/categories', async (req, res) => {
     try {
         const { supabaseAdmin } = require('./config/supabase');
@@ -184,7 +173,6 @@ app.get('/api/public/blogs/categories', async (req, res) => {
 
         if (error) return res.status(500).json({ error: error.message });
 
-        // Extract unique, non-empty categories from topic, topic2 and comma-separated entries
         const extractCategories = (val) => {
             if (!val) return [];
             if (Array.isArray(val)) return val.map(s => String(s).trim()).filter(Boolean);
@@ -206,7 +194,48 @@ app.get('/api/public/blogs/categories', async (req, res) => {
     }
 });
 
-// Public route for digital products listing (main site can fetch without auth)
+// Helper: normalize a single ebook row for public API
+function normalizePublicProduct(p, idx = 0) {
+    function parseJsonb(val, fallback = []) {
+        if (val === undefined || val === null) return fallback;
+        if (Array.isArray(val)) return val;
+        if (typeof val === 'object') return val;
+        try { return JSON.parse(val); } catch { return fallback; }
+    }
+    return {
+        id: String(p.id),
+        sku: p.sku || `PROD-${String(idx + 1).padStart(3, '0')}`,
+        title: p.title || p.name || 'Digital Product',
+        subtitle: p.subtitle || null,
+        slug: p.slug || null,
+        publication_status: p.publication_status || 'available',
+        author: p.author || 'M. Q. Siddiqui',
+        product_type: p.product_type || 'ebook',
+        short_description: p.description ? p.description.substring(0, 140) + '...' : '',
+        description: p.description || '',
+        price: Number(p.price) || 49.00,
+        currency: p.currency || 'AED',
+        format: p.format || 'PDF',
+        cover_image: p.cover_image || '/assets/images/img/30.webp',
+        file_path: p.file_path || 'ebooks/marketing-reclassified.pdf',
+        active: p.active !== false,
+        download_limit: p.download_limit || 3,
+        download_expiry_hours: p.download_expiry_hours || 72,
+        created_at: p.created_at || new Date().toISOString(),
+        // Publication content fields
+        why_this_book_matters: p.why_this_book_matters || null,
+        who_its_for: parseJsonb(p.who_its_for, []),
+        what_readers_will_learn: parseJsonb(p.what_readers_will_learn, []),
+        author_note: p.author_note || null,
+        faq: parseJsonb(p.faq, []),
+        related_learning: parseJsonb(p.related_learning, []),
+        related_frameworks: parseJsonb(p.related_frameworks, []),
+        related_blogs: parseJsonb(p.related_blogs, []),
+        access_options: parseJsonb(p.access_options, []),
+    };
+}
+
+// Public route for digital products listing
 app.get('/api/public/products', async (req, res) => {
     try {
         const { supabaseAdmin } = require('./config/supabase');
@@ -217,32 +246,14 @@ app.get('/api/public/products', async (req, res) => {
 
         if (error) return res.status(500).json({ error: error.message });
 
-        const products = (data || []).map((p, idx) => ({
-            id: String(p.id),
-            sku: p.sku || `PROD-${String(idx + 1).padStart(3, '0')}`,
-            title: p.title || p.name || 'Digital Product',
-            author: p.author || 'M. Q. Siddiqui',
-            product_type: p.product_type || 'ebook',
-            short_description: p.description ? p.description.substring(0, 140) + '...' : '',
-            description: p.description || '',
-            price: Number(p.price) || 49.00,
-            currency: p.currency || 'AED',
-            format: p.format || 'PDF',
-            cover_image: p.cover_image || '/assets/images/img/30.webp',
-            file_path: p.file_path || 'ebooks/marketing-reclassified.pdf',
-            active: p.active !== false,
-            download_limit: p.download_limit || 3,
-            download_expiry_hours: p.download_expiry_hours || 72,
-            created_at: p.created_at || new Date().toISOString()
-        }));
-
+        const products = (data || []).map((p, idx) => normalizePublicProduct(p, idx));
         return res.status(200).json({ products });
     } catch (err) {
         return res.status(500).json({ error: 'Internal server error' });
     }
 });
 
-// Public route for single digital product detail
+// Public route for single digital product detail by ID
 app.get('/api/public/products/:id', async (req, res) => {
     try {
         const { supabaseAdmin } = require('./config/supabase');
@@ -257,26 +268,28 @@ app.get('/api/public/products/:id', async (req, res) => {
         if (error) return res.status(500).json({ error: error.message });
         if (!p) return res.status(404).json({ error: 'Product not found' });
 
-        const product = {
-            id: String(p.id),
-            sku: p.sku || 'PROD-001',
-            title: p.title || p.name || 'Digital Product',
-            author: p.author || 'M. Q. Siddiqui',
-            product_type: p.product_type || 'ebook',
-            short_description: p.description ? p.description.substring(0, 140) + '...' : '',
-            description: p.description || '',
-            price: Number(p.price) || 49.00,
-            currency: p.currency || 'AED',
-            format: p.format || 'PDF',
-            cover_image: p.cover_image || '/assets/images/img/30.webp',
-            file_path: p.file_path || 'ebooks/marketing-reclassified.pdf',
-            active: p.active !== false,
-            download_limit: p.download_limit || 3,
-            download_expiry_hours: p.download_expiry_hours || 72,
-            created_at: p.created_at || new Date().toISOString()
-        };
+        return res.status(200).json({ product: normalizePublicProduct(p, 0) });
+    } catch (err) {
+        return res.status(500).json({ error: 'Internal server error' });
+    }
+});
 
-        return res.status(200).json({ product });
+// Public route for single digital product detail by slug
+app.get('/api/public/products/by-slug/:slug', async (req, res) => {
+    try {
+        const { supabaseAdmin } = require('./config/supabase');
+        const { slug } = req.params;
+
+        const { data: p, error } = await supabaseAdmin
+            .from('ebooks')
+            .select('*')
+            .eq('slug', slug)
+            .maybeSingle();
+
+        if (error) return res.status(500).json({ error: error.message });
+        if (!p) return res.status(404).json({ error: 'Publication not found' });
+
+        return res.status(200).json({ product: normalizePublicProduct(p, 0) });
     } catch (err) {
         return res.status(500).json({ error: 'Internal server error' });
     }
@@ -298,7 +311,6 @@ app.post('/api/public/course-clicks', async (req, res) => {
 });
 
 // --- Error Handling ---
-// Catch 404 and forward to error handler
 app.use((req, res, next) => {
     res.status(404).json({ error: `Not found: ${req.originalUrl}` });
 });
@@ -306,12 +318,10 @@ app.use((req, res, next) => {
 app.use((err, req, res, next) => {
     console.error('[Server] Unhandled error:', err?.message, err);
 
-    // JSON parsing error (e.g. malformed JSON or raw object string)
     if (err instanceof SyntaxError && err.status === 400 && 'body' in err) {
         return res.status(400).json({ error: 'Invalid JSON payload received' });
     }
 
-    // CORS errors — return 403 with the real reason
     if (err.message && err.message.startsWith('CORS blocked')) {
         return res.status(403).json({ error: err.message });
     }
@@ -320,7 +330,6 @@ app.use((err, req, res, next) => {
         return res.status(400).json({ error: err.message });
     }
 
-    // Return the real error message so the client can display it
     res.status(500).json({ error: err?.message || 'Internal server error' });
 });
 

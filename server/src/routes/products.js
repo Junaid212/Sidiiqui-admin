@@ -3,7 +3,6 @@ const router = express.Router();
 const multer = require('multer');
 const { supabaseAdmin } = require('../config/supabase');
 
-// Configure multer for memory storage (5MB limit for cover images)
 // Configure multer for memory storage (up to 50MB for digital products/ebooks, 5MB for images)
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -60,7 +59,6 @@ async function uploadProductCover(file) {
   const fileName = `${Date.now()}-${cleanBase}.${ext}`;
   const filePath = `product-covers/${fileName}`;
 
-  // Try product-covers bucket first, fallback to blogs bucket
   let bucket = 'product-covers';
   let { data, error } = await supabaseAdmin.storage
     .from(bucket)
@@ -101,7 +99,6 @@ async function uploadEbookFile(file) {
     .slice(0, 40);
   const fileName = `ebooks/${Date.now()}-${cleanBase}.${ext}`;
 
-  // Try digital-products bucket first, fallback to product-covers or blogs
   let bucket = 'digital-products';
   let { data, error } = await supabaseAdmin.storage
     .from(bucket)
@@ -166,6 +163,14 @@ const DEFAULT_PRODUCTS = [
   }
 ];
 
+// Helper to parse JSONB fields safely (handles already-parsed objects, strings, null)
+function parseJsonbField(val, fallback = []) {
+  if (val === undefined || val === null) return fallback;
+  if (Array.isArray(val)) return val;
+  if (typeof val === 'object') return val;
+  try { return JSON.parse(val); } catch { return fallback; }
+}
+
 // Helper to normalize product object with standard fields
 function normalizeProduct(p, idx = 0, fallbackData = {}) {
   const prodId = String(p?.id || fallbackData?.id || '');
@@ -177,6 +182,9 @@ function normalizeProduct(p, idx = 0, fallbackData = {}) {
     id: prodId || `prod_${Date.now()}_${idx}`,
     sku: p?.sku || fallbackData?.sku || `PROD-${String(idx + 1).padStart(3, '0')}`,
     title: p?.title || fallbackData?.title || p?.name || 'Digital Product',
+    subtitle: p?.subtitle || fallbackData?.subtitle || null,
+    slug: p?.slug || fallbackData?.slug || null,
+    publication_status: p?.publication_status || fallbackData?.publication_status || 'available',
     author: p?.author || fallbackData?.author || 'M. Q. Siddiqui',
     product_type: p?.product_type || fallbackData?.product_type || 'ebook',
     price: Number(p?.price !== undefined ? p.price : (fallbackData?.price !== undefined ? fallbackData.price : 49.00)),
@@ -188,7 +196,17 @@ function normalizeProduct(p, idx = 0, fallbackData = {}) {
     active: (p?.active !== undefined ? p.active !== false : (fallbackData?.active !== undefined ? fallbackData.active !== false : true)),
     download_limit: Number(p?.download_limit || fallbackData?.download_limit || 3),
     download_expiry_hours: Number(p?.download_expiry_hours || fallbackData?.download_expiry_hours || 72),
-    created_at: p?.created_at || fallbackData?.created_at || new Date().toISOString()
+    created_at: p?.created_at || fallbackData?.created_at || new Date().toISOString(),
+    // Publication content fields
+    why_this_book_matters: p?.why_this_book_matters || fallbackData?.why_this_book_matters || null,
+    who_its_for: parseJsonbField(p?.who_its_for ?? fallbackData?.who_its_for, []),
+    what_readers_will_learn: parseJsonbField(p?.what_readers_will_learn ?? fallbackData?.what_readers_will_learn, []),
+    author_note: p?.author_note || fallbackData?.author_note || null,
+    faq: parseJsonbField(p?.faq ?? fallbackData?.faq, []),
+    related_learning: parseJsonbField(p?.related_learning ?? fallbackData?.related_learning, []),
+    related_frameworks: parseJsonbField(p?.related_frameworks ?? fallbackData?.related_frameworks, []),
+    related_blogs: parseJsonbField(p?.related_blogs ?? fallbackData?.related_blogs, []),
+    access_options: parseJsonbField(p?.access_options ?? fallbackData?.access_options, []),
   };
 }
 
@@ -201,12 +219,9 @@ async function executeWithSchemaFallback(operationFn, payload) {
       return res;
     }
 
-    // Check if error is due to a missing column in Supabase schema cache
-    // e.g. "Could not find the 'active' column of 'ebooks' in the schema cache"
-    // or Postgres code 42703 (undefined column)
     const match = res.error.message?.match(/Could not find the '([^']+)' column/i) ||
-                  res.error.message?.match(/column ['"]?([a-zA-Z0-9_]+)['"]? of ['"]?ebooks['"]? does not exist/i) ||
-                  res.error.message?.match(/column ['"]?([a-zA-Z0-9_]+)['"]? does not exist/i);
+                  res.error.message?.match(/column ['""]?([a-zA-Z0-9_]+)['""]? of ['""]?ebooks['""]? does not exist/i) ||
+                  res.error.message?.match(/column ['""]?([a-zA-Z0-9_]+)['""]? does not exist/i);
 
     if (match && match[1] && currentPayload.hasOwnProperty(match[1])) {
       const badCol = match[1];
@@ -218,7 +233,6 @@ async function executeWithSchemaFallback(operationFn, payload) {
       continue;
     }
 
-    // If unhandled error, return it
     return res;
   }
 }
@@ -273,6 +287,34 @@ router.post('/upload-file', uploadProductMiddleware, async (req, res) => {
   }
 });
 
+// Helper to extract new publication content fields from request body
+function extractPublicationFields(body) {
+  const fields = {};
+
+  if (body.subtitle !== undefined) fields.subtitle = body.subtitle || null;
+  if (body.slug !== undefined) fields.slug = body.slug || null;
+  if (body.publication_status !== undefined) fields.publication_status = body.publication_status || 'available';
+  if (body.why_this_book_matters !== undefined) fields.why_this_book_matters = body.why_this_book_matters || null;
+  if (body.author_note !== undefined) fields.author_note = body.author_note || null;
+
+  // JSONB array fields — accept string (JSON) or parsed array
+  const jsonbFields = ['who_its_for', 'what_readers_will_learn', 'faq', 'related_learning', 'related_frameworks', 'related_blogs', 'access_options'];
+  for (const field of jsonbFields) {
+    if (body[field] !== undefined) {
+      if (typeof body[field] === 'string') {
+        try { fields[field] = JSON.parse(body[field]); }
+        catch { fields[field] = []; }
+      } else if (Array.isArray(body[field])) {
+        fields[field] = body[field];
+      } else {
+        fields[field] = [];
+      }
+    }
+  }
+
+  return fields;
+}
+
 // POST /api/products — Create new digital product
 router.post('/', uploadProductMiddleware, async (req, res) => {
   try {
@@ -315,6 +357,8 @@ router.post('/', uploadProductMiddleware, async (req, res) => {
       }
     }
 
+    const pubFields = extractPublicationFields(req.body);
+
     const dbPayload = {
       title: String(title).trim(),
       description: description || '',
@@ -328,7 +372,8 @@ router.post('/', uploadProductMiddleware, async (req, res) => {
       active: active !== 'false' && active !== false,
       sku: sku || `PROD-${Date.now().toString(36).toUpperCase()}`,
       product_type: product_type || 'ebook',
-      author: author || 'M. Q. Siddiqui'
+      author: author || 'M. Q. Siddiqui',
+      ...pubFields,
     };
 
     const { data, error } = await executeWithSchemaFallback(
@@ -338,7 +383,6 @@ router.post('/', uploadProductMiddleware, async (req, res) => {
 
     if (error) {
       console.error('DB insert error:', error);
-
       return res.status(500).json({
         error: error.message || 'Failed to create product'
       });
@@ -354,7 +398,6 @@ router.post('/', uploadProductMiddleware, async (req, res) => {
 
   } catch (err) {
     console.error('Create product error:', err);
-
     return res.status(500).json({
       error: err.message || 'Internal server error'
     });
@@ -387,60 +430,23 @@ router.put('/:id', uploadProductMiddleware, async (req, res) => {
 
     const dbPayload = {};
 
-    if (updates.title !== undefined) {
-      dbPayload.title = String(updates.title).trim();
-    }
+    if (updates.title !== undefined) dbPayload.title = String(updates.title).trim();
+    if (updates.description !== undefined) dbPayload.description = updates.description;
+    if (updates.price !== undefined) dbPayload.price = Number(updates.price);
+    if (updates.currency !== undefined) dbPayload.currency = updates.currency;
+    if (updates.format !== undefined) dbPayload.format = updates.format;
+    if (updates.cover_image !== undefined) dbPayload.cover_image = updates.cover_image;
+    if (updates.file_path !== undefined) dbPayload.file_path = updates.file_path;
+    if (updates.download_limit !== undefined) dbPayload.download_limit = Number(updates.download_limit);
+    if (updates.download_expiry_hours !== undefined) dbPayload.download_expiry_hours = Number(updates.download_expiry_hours);
+    if (updates.active !== undefined) dbPayload.active = updates.active !== 'false' && updates.active !== false;
+    if (updates.sku !== undefined) dbPayload.sku = updates.sku;
+    if (updates.product_type !== undefined) dbPayload.product_type = updates.product_type;
+    if (updates.author !== undefined) dbPayload.author = updates.author;
 
-    if (updates.description !== undefined) {
-      dbPayload.description = updates.description;
-    }
-
-    if (updates.price !== undefined) {
-      dbPayload.price = Number(updates.price);
-    }
-
-    if (updates.currency !== undefined) {
-      dbPayload.currency = updates.currency;
-    }
-
-    if (updates.format !== undefined) {
-      dbPayload.format = updates.format;
-    }
-
-    if (updates.cover_image !== undefined) {
-      dbPayload.cover_image = updates.cover_image;
-    }
-
-    if (updates.file_path !== undefined) {
-      dbPayload.file_path = updates.file_path;
-    }
-
-    if (updates.download_limit !== undefined) {
-      dbPayload.download_limit = Number(updates.download_limit);
-    }
-
-    if (updates.download_expiry_hours !== undefined) {
-      dbPayload.download_expiry_hours =
-        Number(updates.download_expiry_hours);
-    }
-
-    if (updates.active !== undefined) {
-      dbPayload.active =
-        updates.active !== 'false' &&
-        updates.active !== false;
-    }
-
-    if (updates.sku !== undefined) {
-      dbPayload.sku = updates.sku;
-    }
-
-    if (updates.product_type !== undefined) {
-      dbPayload.product_type = updates.product_type;
-    }
-
-    if (updates.author !== undefined) {
-      dbPayload.author = updates.author;
-    }
+    // New publication content fields
+    const pubFields = extractPublicationFields(updates);
+    Object.assign(dbPayload, pubFields);
 
     if (Object.keys(dbPayload).length === 0) {
       return res.status(400).json({
@@ -455,7 +461,6 @@ router.put('/:id', uploadProductMiddleware, async (req, res) => {
 
     if (error) {
       console.error('DB update error:', error);
-
       return res.status(500).json({
         error: error.message || 'Failed to update product'
       });
@@ -477,7 +482,6 @@ router.put('/:id', uploadProductMiddleware, async (req, res) => {
 
   } catch (err) {
     console.error('Update product error:', err);
-
     return res.status(500).json({
       error: err.message || 'Internal server error'
     });
