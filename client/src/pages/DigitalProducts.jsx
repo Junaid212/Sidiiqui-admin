@@ -189,57 +189,66 @@ function FaqManager({ items, onChange }) {
     );
 }
 
-/* ─── Access Options Manager ───────────────────────────────────────── */
+/* ─── Shared Styles ────────────────────────────────────────────────── */
+const inputStyle = { width: '100%', padding: '9px 11px', background: '#28283d', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 7, color: '#fff', fontSize: '0.83rem', boxSizing: 'border-box' };
+const selectStyle = { ...inputStyle };
+const labelStyle = { display: 'block', fontSize: '0.78rem', color: '#a1a1aa', marginBottom: 4, fontWeight: 500 };
+const iconBtnStyle = (color) => ({ background: 'transparent', border: 'none', color, cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '4px', borderRadius: 4, flexShrink: 0 });
+const addBtnStyle = { display: 'inline-flex', alignItems: 'center', gap: 5, padding: '8px 14px', background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)', color: '#fff', border: 'none', borderRadius: 6, fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer' };
+
+/* ─── Access Option Form (standalone component so it does not remount on every keystroke) ─── */
 const EMPTY_OPTION = { name: '', description: '', price: '', currency: 'USD', access_type: 'download', downloadable: true, cta_text: '', status: 'active', product_id: '' };
 
-function AccessOptionsManager({ items, onChange }) {
-    const [editIdx, setEditIdx] = useState(null);
-    const [draft, setDraft] = useState(EMPTY_OPTION);
-
-    function add() {
-        if (!draft.name.trim()) { toast.error('Option name is required'); return; }
-        onChange([...items, { ...draft, price: Number(draft.price) || 0 }]);
-        setDraft(EMPTY_OPTION);
-    }
-    function remove(i) { onChange(items.filter((_, idx) => idx !== i)); }
-    function startEdit(i) { setEditIdx(i); setDraft({ ...items[i] }); }
-    function saveEdit(i) {
-        const a = [...items]; a[i] = { ...draft, price: Number(draft.price) || 0 };
-        onChange(a); setEditIdx(null); setDraft(EMPTY_OPTION);
-    }
-    function moveUp(i) {
-        if (i === 0) return;
-        const a = [...items]; [a[i - 1], a[i]] = [a[i], a[i - 1]]; onChange(a);
-    }
-    function moveDown(i) {
-        if (i === items.length - 1) return;
-        const a = [...items]; [a[i + 1], a[i]] = [a[i], a[i + 1]]; onChange(a);
-    }
-
-    const OptionForm = ({ val, setVal, onSave, onCancel, saveLabel }) => (
+function OptionForm({ val, setVal, onSave, onCancel, saveLabel }) {
+    return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
                 <div>
                     <label style={labelStyle}>Option Name *</label>
-                    <input placeholder="e.g. Downloadable Professional Edition" value={val.name} onChange={e => setVal(p => ({ ...p, name: e.target.value }))} style={inputStyle} />
+                    <input
+                        placeholder="e.g. Downloadable Professional Edition"
+                        value={val.name || ''}
+                        onChange={e => setVal(p => ({ ...p, name: e.target.value }))}
+                        style={inputStyle}
+                    />
                 </div>
                 <div>
                     <label style={labelStyle}>CTA Text</label>
-                    <input placeholder="e.g. Download Now — USD 49.99" value={val.cta_text} onChange={e => setVal(p => ({ ...p, cta_text: e.target.value }))} style={inputStyle} />
+                    <input
+                        placeholder="e.g. Download Now — USD 49.99"
+                        value={val.cta_text || ''}
+                        onChange={e => setVal(p => ({ ...p, cta_text: e.target.value }))}
+                        style={inputStyle}
+                    />
                 </div>
             </div>
             <div>
                 <label style={labelStyle}>Description</label>
-                <textarea rows={2} value={val.description} onChange={e => setVal(p => ({ ...p, description: e.target.value }))} style={{ ...inputStyle, resize: 'vertical' }} />
+                <textarea
+                    rows={2}
+                    value={val.description || ''}
+                    onChange={e => setVal(p => ({ ...p, description: e.target.value }))}
+                    style={{ ...inputStyle, resize: 'vertical' }}
+                />
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 8 }}>
                 <div>
                     <label style={labelStyle}>Price</label>
-                    <input type="number" step="0.01" value={val.price} onChange={e => setVal(p => ({ ...p, price: e.target.value }))} style={inputStyle} />
+                    <input
+                        type="number"
+                        step="0.01"
+                        value={val.price ?? ''}
+                        onChange={e => setVal(p => ({ ...p, price: e.target.value }))}
+                        style={inputStyle}
+                    />
                 </div>
                 <div>
                     <label style={labelStyle}>Currency</label>
-                    <select value={val.currency} onChange={e => setVal(p => ({ ...p, currency: e.target.value }))} style={selectStyle}>
+                    <select
+                        value={val.currency || 'USD'}
+                        onChange={e => setVal(p => ({ ...p, currency: e.target.value }))}
+                        style={selectStyle}
+                    >
                         <option value="USD">USD</option>
                         <option value="AED">AED</option>
                         <option value="EUR">EUR</option>
@@ -248,7 +257,11 @@ function AccessOptionsManager({ items, onChange }) {
                 </div>
                 <div>
                     <label style={labelStyle}>Access Type</label>
-                    <select value={val.access_type} onChange={e => setVal(p => ({ ...p, access_type: e.target.value, downloadable: e.target.value === 'download' }))} style={selectStyle}>
+                    <select
+                        value={val.access_type || 'download'}
+                        onChange={e => setVal(p => ({ ...p, access_type: e.target.value, downloadable: e.target.value === 'download' }))}
+                        style={selectStyle}
+                    >
                         <option value="download">Downloadable</option>
                         <option value="online">Online Access</option>
                         <option value="companion">Companion Pack</option>
@@ -257,7 +270,11 @@ function AccessOptionsManager({ items, onChange }) {
                 </div>
                 <div>
                     <label style={labelStyle}>Status</label>
-                    <select value={val.status} onChange={e => setVal(p => ({ ...p, status: e.target.value }))} style={selectStyle}>
+                    <select
+                        value={val.status || 'active'}
+                        onChange={e => setVal(p => ({ ...p, status: e.target.value }))}
+                        style={selectStyle}
+                    >
                         <option value="active">Active</option>
                         <option value="inactive">Inactive</option>
                         <option value="coming_soon">Coming Soon</option>
@@ -266,7 +283,12 @@ function AccessOptionsManager({ items, onChange }) {
             </div>
             <div>
                 <label style={labelStyle}>Stripe Product / Price ID (optional)</label>
-                <input placeholder="e.g. cff3798b-88bb-41af-8e2a-bc5f7a2a4239 or prod_xxx" value={val.product_id} onChange={e => setVal(p => ({ ...p, product_id: e.target.value }))} style={inputStyle} />
+                <input
+                    placeholder="e.g. cff3798b-88bb-41af-8e2a-bc5f7a2a4239 or prod_xxx"
+                    value={val.product_id || ''}
+                    onChange={e => setVal(p => ({ ...p, product_id: e.target.value }))}
+                    style={inputStyle}
+                />
             </div>
             <div style={{ display: 'flex', gap: 8, marginTop: 2 }}>
                 <button type="button" onClick={onSave} style={addBtnStyle}><HiOutlineCheck size={13} /> {saveLabel}</button>
@@ -274,14 +296,70 @@ function AccessOptionsManager({ items, onChange }) {
             </div>
         </div>
     );
+}
+
+/* ─── Access Options Manager ───────────────────────────────────────── */
+function AccessOptionsManager({ items = [], onChange }) {
+    const [editIdx, setEditIdx] = useState(null);
+    const [newDraft, setNewDraft] = useState(EMPTY_OPTION);
+    const [editDraft, setEditDraft] = useState(EMPTY_OPTION);
+
+    const safeItems = Array.isArray(items) ? items : [];
+
+    function add() {
+        if (!newDraft.name.trim()) { toast.error('Option name is required'); return; }
+        onChange([...safeItems, { ...newDraft, price: Number(newDraft.price) || 0 }]);
+        setNewDraft(EMPTY_OPTION);
+    }
+    function remove(i) {
+        onChange(safeItems.filter((_, idx) => idx !== i));
+        if (editIdx === i) {
+            setEditIdx(null);
+            setEditDraft(EMPTY_OPTION);
+        }
+    }
+    function startEdit(i) {
+        setEditIdx(i);
+        setEditDraft({ ...safeItems[i] });
+    }
+    function saveEdit(i) {
+        if (!editDraft.name.trim()) { toast.error('Option name is required'); return; }
+        const a = [...safeItems];
+        a[i] = { ...editDraft, price: Number(editDraft.price) || 0 };
+        onChange(a);
+        setEditIdx(null);
+        setEditDraft(EMPTY_OPTION);
+    }
+    function cancelEdit() {
+        setEditIdx(null);
+        setEditDraft(EMPTY_OPTION);
+    }
+    function moveUp(i) {
+        if (i === 0) return;
+        const a = [...safeItems];
+        [a[i - 1], a[i]] = [a[i], a[i - 1]];
+        onChange(a);
+    }
+    function moveDown(i) {
+        if (i === safeItems.length - 1) return;
+        const a = [...safeItems];
+        [a[i + 1], a[i]] = [a[i], a[i + 1]];
+        onChange(a);
+    }
 
     return (
         <div>
             <label style={labelStyle}>Access / Purchase Options</label>
-            {items.map((opt, i) => (
+            {safeItems.map((opt, i) => (
                 <div key={i} style={{ background: '#1a1a2b', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8, padding: '10px 14px', marginBottom: 8 }}>
                     {editIdx === i ? (
-                        <OptionForm val={draft} setVal={setDraft} onSave={() => saveEdit(i)} onCancel={() => { setEditIdx(null); setDraft(EMPTY_OPTION); }} saveLabel="Save Option" />
+                        <OptionForm
+                            val={editDraft}
+                            setVal={setEditDraft}
+                            onSave={() => saveEdit(i)}
+                            onCancel={cancelEdit}
+                            saveLabel="Save Option"
+                        />
                     ) : (
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                             <div style={{ flex: 1 }}>
@@ -301,7 +379,12 @@ function AccessOptionsManager({ items, onChange }) {
             ))}
             <div style={{ background: '#1a1a2b', border: '1.5px dashed rgba(16,185,129,0.3)', borderRadius: 8, padding: '12px 14px', marginTop: 6 }}>
                 <p style={{ fontSize: '0.78rem', color: '#10b981', marginBottom: 8, fontWeight: 600 }}>Add New Access Option</p>
-                <OptionForm val={draft} setVal={setDraft} onSave={add} saveLabel="Add Option" />
+                <OptionForm
+                    val={newDraft}
+                    setVal={setNewDraft}
+                    onSave={add}
+                    saveLabel="Add Option"
+                />
             </div>
         </div>
     );
@@ -315,13 +398,6 @@ function SectionDivider({ title }) {
         </div>
     );
 }
-
-/* ─── Shared Styles ────────────────────────────────────────────────── */
-const inputStyle = { width: '100%', padding: '9px 11px', background: '#28283d', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 7, color: '#fff', fontSize: '0.83rem', boxSizing: 'border-box' };
-const selectStyle = { ...inputStyle };
-const labelStyle = { display: 'block', fontSize: '0.78rem', color: '#a1a1aa', marginBottom: 4, fontWeight: 500 };
-const iconBtnStyle = (color) => ({ background: 'transparent', border: 'none', color, cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '4px', borderRadius: 4, flexShrink: 0 });
-const addBtnStyle = { display: 'inline-flex', alignItems: 'center', gap: 5, padding: '8px 14px', background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)', color: '#fff', border: 'none', borderRadius: 6, fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer' };
 
 /* ─── Main Component ───────────────────────────────────────────────── */
 export default function DigitalProducts() {

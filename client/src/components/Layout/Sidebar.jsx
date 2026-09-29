@@ -13,12 +13,14 @@ import {
     HiOutlineUserGroup,
     HiOutlineMail,
     HiOutlineClipboardList,
+    HiOutlineTag,
 } from 'react-icons/hi';
 import { useState } from 'react';
 
 const navItems = [
     { to: '/', icon: HiOutlineChartBar, label: 'Dashboard' },
     { to: '/orders', icon: HiOutlineShoppingCart, label: 'EBook Orders' },
+    { to: '/coupons', icon: HiOutlineTag, label: 'Coupons & Discounts' },
     { to: '/products', icon: HiOutlineBookOpen, label: 'Digital Products' },
     { to: '/course-interactions', icon: HiOutlineCursorClick, label: 'Course Clicks' },
     { to: '/consultations', icon: HiOutlineCalendar, label: 'Consultations' },

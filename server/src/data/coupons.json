@@ -1,0 +1,82 @@
+[
+  {
+    "id": "coup_1790580545401_mslev",
+    "code": "PROMO312",
+    "discount_percentage": 35,
+    "discount_type": "percentage",
+    "description": "E2E Test coupon — 35% discount on all books",
+    "min_order_amount": 0,
+    "max_uses": null,
+    "times_used": 0,
+    "is_active": true,
+    "expires_at": null,
+    "created_at": "2026-09-28T07:29:05.401Z",
+    "updated_at": "2026-09-28T07:29:05.401Z"
+  },
+  {
+    "id": "coup_1790580494749_5g7cx",
+    "code": "PROMO507",
+    "discount_percentage": 35,
+    "discount_type": "percentage",
+    "description": "E2E Test coupon — 35% discount on all books",
+    "min_order_amount": 0,
+    "max_uses": null,
+    "times_used": 0,
+    "is_active": true,
+    "expires_at": null,
+    "created_at": "2026-09-28T07:28:14.749Z",
+    "updated_at": "2026-09-28T07:28:14.749Z"
+  },
+  {
+    "id": "coup_launch20",
+    "code": "LAUNCH20",
+    "discount_percentage": 20,
+    "discount_type": "percentage",
+    "description": "Launch promotion — 20% off all publications",
+    "min_order_amount": 0,
+    "max_uses": null,
+    "times_used": 14,
+    "is_active": true,
+    "expires_at": null,
+    "created_at": "2026-09-28T07:11:50.340Z"
+  },
+  {
+    "id": "coup_welcome10",
+    "code": "WELCOME10",
+    "discount_percentage": 10,
+    "discount_type": "percentage",
+    "description": "New reader welcome gift — 10% off",
+    "min_order_amount": 0,
+    "max_uses": null,
+    "times_used": 8,
+    "is_active": true,
+    "expires_at": null,
+    "created_at": "2026-09-28T07:11:50.386Z"
+  },
+  {
+    "id": "coup_reader15",
+    "code": "READER15",
+    "discount_percentage": 15,
+    "discount_type": "percentage",
+    "description": "Exclusive subscriber discount — 15% off",
+    "min_order_amount": 0,
+    "max_uses": 100,
+    "times_used": 23,
+    "is_active": true,
+    "expires_at": null,
+    "created_at": "2026-09-28T07:11:50.386Z"
+  },
+  {
+    "id": "coup_books25",
+    "code": "BOOKS25",
+    "discount_percentage": 25,
+    "discount_type": "percentage",
+    "description": "Special book bundle discount — 25% off",
+    "min_order_amount": 50,
+    "max_uses": 50,
+    "times_used": 5,
+    "is_active": true,
+    "expires_at": null,
+    "created_at": "2026-09-28T07:11:50.386Z"
+  }
+]

@@ -16,6 +16,7 @@ const signInsRoutes = require('./routes/signIns');
 const metricsRoutes = require('./routes/metrics');
 const contactMessagesRoutes = require('./routes/contactMessages');
 const questionnaireRoutes = require('./routes/questionnaire');
+const couponsRoutes = require('./routes/coupons');
 const { requireAuth } = require('./middleware/auth');
 
 const app = express();
@@ -77,6 +78,8 @@ app.use('/api/sign-ins-details', requireAuth, signInsRoutes);
 app.use('/api/admin/metrics', requireAuth, metricsRoutes);
 app.use('/api/contact-messages', requireAuth, contactMessagesRoutes);
 app.use('/api/questionnaire', requireAuth, questionnaireRoutes);
+app.use('/api/coupons', requireAuth, couponsRoutes);
+app.use('/api/public/coupons', couponsRoutes);
 
 app.use('/api/public/consultations', publicConsultationsRoutes);
 

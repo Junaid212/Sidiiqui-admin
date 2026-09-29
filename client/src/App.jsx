@@ -12,6 +12,7 @@ import BlogList from './pages/BlogList';
 import BlogDetails from './pages/BlogDetails';
 import EbookOrders from './pages/EbookOrders';
 import DigitalProducts from './pages/DigitalProducts';
+import Coupons from './pages/Coupons';
 import CourseClicks from './pages/CourseClicks';
 import SignIns from './pages/SignIns';
 import ForgotPassword from './pages/ForgotPassword';
@@ -75,6 +76,7 @@ function App() {
           <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
             <Route path="/" element={<Dashboard />} />
             <Route path="/orders" element={<EbookOrders />} />
+            <Route path="/coupons" element={<Coupons />} />
             <Route path="/products" element={<DigitalProducts />} />
             <Route path="/course-interactions" element={<CourseClicks />} />
             <Route path="/consultations" element={<Consultations />} />
