@@ -19,6 +19,7 @@ import ForgotPassword from './pages/ForgotPassword';
 import ResetPassword from './pages/ResetPassword';
 import ContactMessages from './pages/ContactMessages';
 import QuestionnaireAnalytics from './pages/QuestionnaireAnalytics';
+import AskSidSettings from './pages/AskSidSettings';
 
 function ProtectedRoute({ children }) {
   const { isAuthenticated, loading } = useAuth();
@@ -85,6 +86,7 @@ function App() {
             <Route path="/sign-ins" element={<SignIns />} />
             <Route path="/contact-messages" element={<ContactMessages />} />
             <Route path="/questionnaire" element={<QuestionnaireAnalytics />} />
+            <Route path="/ask-sid" element={<AskSidSettings />} />
           </Route>
 
           {/* Fallback */}

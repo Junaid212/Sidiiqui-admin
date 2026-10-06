@@ -17,6 +17,7 @@ const metricsRoutes = require('./routes/metrics');
 const contactMessagesRoutes = require('./routes/contactMessages');
 const questionnaireRoutes = require('./routes/questionnaire');
 const couponsRoutes = require('./routes/coupons');
+const askSidRoutes = require('./routes/askSid');
 const { requireAuth } = require('./middleware/auth');
 
 const app = express();
@@ -79,6 +80,26 @@ app.use('/api/admin/metrics', requireAuth, metricsRoutes);
 app.use('/api/contact-messages', requireAuth, contactMessagesRoutes);
 app.use('/api/questionnaire', requireAuth, questionnaireRoutes);
 app.use('/api/coupons', requireAuth, couponsRoutes);
+app.use('/api/ask-sid', requireAuth, askSidRoutes);
+
+// Public route for Ask SID config
+app.get('/api/public/ask-sid-config', async (req, res) => {
+    try {
+        const { getAskSidSettings } = require('./utils/askSidSettingsStore');
+        const settings = await getAskSidSettings();
+        return res.json({
+            askSidEnabled: settings.askSidEnabled !== false,
+            publicDemoEnabled: settings.publicDemoEnabled !== false,
+            demoQuestionLimit: Number(settings.demoQuestionLimit || 1),
+            upgradeCtaText: settings.upgradeCtaText || 'Unlock Full Ask SID with the Digital Companion Edition ($49.99)',
+            upgradeUrl: settings.upgradeUrl || '/publications/marketing-reclassified-principle-first-approach',
+            advisoryCtaEnabled: settings.advisoryCtaEnabled !== false,
+            advisoryUrl: settings.advisoryUrl || '/consultation'
+        });
+    } catch (e) {
+        return res.status(500).json({ error: 'Failed to load Ask SID configuration' });
+    }
+});
 app.use('/api/public/coupons', couponsRoutes);
 
 app.use('/api/public/consultations', publicConsultationsRoutes);

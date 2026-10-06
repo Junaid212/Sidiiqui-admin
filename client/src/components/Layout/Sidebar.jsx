@@ -14,6 +14,7 @@ import {
     HiOutlineMail,
     HiOutlineClipboardList,
     HiOutlineTag,
+    HiOutlineSparkles,
 } from 'react-icons/hi';
 import { useState } from 'react';
 
@@ -22,7 +23,8 @@ const navItems = [
     { to: '/orders', icon: HiOutlineShoppingCart, label: 'EBook Orders' },
     { to: '/coupons', icon: HiOutlineTag, label: 'Coupons & Discounts' },
     { to: '/products', icon: HiOutlineBookOpen, label: 'Digital Products' },
-    { to: '/course-interactions', icon: HiOutlineCursorClick, label: 'Course Clicks' },
+    { to: '/ask-sid', icon: HiOutlineSparkles, label: 'Ask SID Settings' },
+    // { to: '/course-interactions', icon: HiOutlineCursorClick, label: 'Course Clicks' },
     { to: '/consultations', icon: HiOutlineCalendar, label: 'Consultations' },
     { to: '/sign-ins', icon: HiOutlineUserGroup, label: 'Sign-Ins' },
     { to: '/contact-messages', icon: HiOutlineMail, label: 'Contact Messages' },

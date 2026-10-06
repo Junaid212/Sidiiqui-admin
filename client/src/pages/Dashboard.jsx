@@ -21,7 +21,7 @@ export default function Dashboard() {
     const [stats, setStats] = useState({
         ebookRevenue: 0,
         ebookCount: 0,
-        courseClicks: 0,
+        // courseClicks: 0,
         consultations: 0,
         signIns: 0,
         consultationUsers: 0,
@@ -41,7 +41,7 @@ export default function Dashboard() {
         try {
             const [ebooks, clicks, signInsData, consultations, blogStats, emailsSent, contactMsgs, blogsData] = await Promise.all([
                 apiRequest('/stats/ebooks'),
-                apiRequest('/stats/course-clicks'),
+                // apiRequest('/stats/course-clicks'),
                 apiRequest('/admin/metrics/signins'),
                 apiRequest('/stats/consultations-count'),
                 apiRequest('/stats/blogs-count'),
@@ -53,7 +53,7 @@ export default function Dashboard() {
             setStats({
                 ebookRevenue: ebooks.total || 0,
                 ebookCount: ebooks.count || 0,
-                courseClicks: clicks.count || 0,
+                // courseClicks: clicks.count || 0,
                 consultations: consultations.count || 0,
                 signIns: signInsData.total_users || 0,
                 consultationUsers: signInsData.consultation_users || 0,
@@ -82,7 +82,7 @@ export default function Dashboard() {
     ];
 
     const interactionsData = [
-        { name: 'Interactions', Course: stats.courseClicks, Consultations: stats.consultations, SignIns: stats.signIns },
+        { name: 'Interactions', Consultations: stats.consultations, SignIns: stats.signIns },
     ];
 
     if (loading) {
@@ -111,7 +111,7 @@ export default function Dashboard() {
                         color="#10b981"
                     />
                 </Link>
-                <Link to="/course-interactions" style={{ textDecoration: 'none', color: 'inherit', display: 'block' }}>
+                {/* <Link to="/course-interactions" style={{ textDecoration: 'none', color: 'inherit', display: 'block' }}>
                     <StatCard
                         title="Course"
                         value={stats.courseClicks.toLocaleString()}
@@ -119,7 +119,7 @@ export default function Dashboard() {
                         icon={HiOutlineCursorClick}
                         color="#6366f1"
                     />
-                </Link>
+                </Link> */}
                 <Link to="/consultations" style={{ textDecoration: 'none', color: 'inherit', display: 'block' }}>
                     <StatCard
                         title="Consultations"
