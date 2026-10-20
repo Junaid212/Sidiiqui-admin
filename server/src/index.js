@@ -130,11 +130,65 @@ app.post('/api/public/contact', async (req, res) => {
     }
 });
 
-// Public route for blog listing
+// --- Public Blog & Comment Routes (Editorial Blog System) ---
+
+const REFERENCE_TOPICS = [
+    'SID Philosophy',
+    'Marketing Reclassified',
+    'Business Strategy & Growth',
+    'Leadership & Governance',
+    'AI & Human Thinking',
+    'Higher Education & Learning',
+    'Innovation & Entrepreneurship',
+];
+
+function extractCategories(val) {
+    if (!val) return [];
+    if (Array.isArray(val)) return val.map(s => String(s).trim()).filter(Boolean);
+    if (typeof val === 'string') return val.split(',').map(s => s.trim()).filter(Boolean);
+    return [];
+}
+
+function getBlogCategories(b) {
+    const list = [];
+    [...extractCategories(b.topic), ...extractCategories(b.topic2)].forEach(t => {
+        if (t && !list.some(existing => existing.toLowerCase() === t.toLowerCase())) {
+            list.push(t);
+        }
+    });
+    return list;
+}
+
+function isBlogPublished(b) {
+    // If status is draft or unpublished, never show publicly
+    const st = (b.status || 'published').toLowerCase();
+    if (st === 'draft' || st === 'unpublished') return false;
+    // If scheduled, only show if scheduled time has passed
+    if (st === 'scheduled') {
+        if (!b.scheduled_for) return false;
+        return new Date(b.scheduled_for) <= new Date();
+    }
+    return true;
+}
+
+function normalizePublicBlog(b) {
+    const cats = getBlogCategories(b);
+    return {
+        ...b,
+        category: cats[0] || b.topic || 'General',
+        category2: cats[1] || b.topic2 || null,
+        categories: cats,
+        author_byline: b.author_byline || 'By M. Q. Siddiqui, Founder, Siddiqui.digital',
+        slug: b.slug || String(b.id),
+        reading_time: b.reading_time || (b.content ? `${Math.max(2, Math.ceil(b.content.split(/\s+/).length / 200))} min read` : '4 min read'),
+    };
+}
+
+// Public route for blog listing with search & category filtering
 app.get('/api/public/blogs', async (req, res) => {
     try {
         const { supabaseAdmin } = require('./config/supabase');
-        const { category } = req.query;
+        const { category, search, limit, page } = req.query;
 
         let query = supabaseAdmin
             .from('blogs')
@@ -142,52 +196,135 @@ app.get('/api/public/blogs', async (req, res) => {
             .order('created_at', { ascending: false });
 
         let { data, error } = await query;
-
         if (error) return res.status(500).json({ error: error.message });
 
-        const extractCategories = (val) => {
-            if (!val) return [];
-            if (Array.isArray(val)) return val.map(s => String(s).trim()).filter(Boolean);
-            if (typeof val === 'string') return val.split(',').map(s => s.trim()).filter(Boolean);
-            return [];
-        };
+        // Filter only publicly published articles
+        let blogs = (data || []).filter(isBlogPublished).map(normalizePublicBlog);
 
-        const getCategories = (b) => {
-            const list = [];
-            [...extractCategories(b.topic), ...extractCategories(b.topic2)].forEach(t => {
-                if (t && !list.some(existing => existing.toLowerCase() === t.toLowerCase())) {
-                    list.push(t);
-                }
-            });
-            return list;
-        };
-
-        let blogs = (data || []).map(b => {
-            const cats = getCategories(b);
-            return {
-                ...b,
-                category: b.topic || null,
-                category2: b.topic2 || null,
-                categories: cats,
-            };
-        });
-
-        if (category) {
+        // Filter by category if requested
+        if (category && category !== 'all') {
             const target = category.trim().toLowerCase();
             blogs = blogs.filter(b =>
-                b.categories.some(c => c.toLowerCase() === target) ||
+                b.categories.some(c => c.toLowerCase() === target || c.toLowerCase().includes(target)) ||
                 (b.topic && String(b.topic).toLowerCase().includes(target)) ||
                 (b.topic2 && String(b.topic2).toLowerCase().includes(target))
             );
         }
 
-        return res.status(200).json({ blogs });
+        // Real-time search across title, summary, standfirst, content, categories
+        if (search && search.trim()) {
+            const q = search.trim().toLowerCase();
+            blogs = blogs.filter(b => {
+                const titleMatch = (b.title || '').toLowerCase().includes(q);
+                const summaryMatch = (b.summary || '').toLowerCase().includes(q);
+                const standfirstMatch = (b.standfirst || '').toLowerCase().includes(q);
+                const contentMatch = (b.content || '').toLowerCase().includes(q);
+                const catMatch = b.categories.some(c => c.toLowerCase().includes(q));
+                return titleMatch || summaryMatch || standfirstMatch || contentMatch || catMatch;
+            });
+        }
+
+        return res.status(200).json({ blogs, total: blogs.length });
+    } catch (err) {
+        console.error('Public blogs listing error:', err);
+        return res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// Public route for featured article
+app.get('/api/public/blogs/featured', async (req, res) => {
+    try {
+        const { supabaseAdmin } = require('./config/supabase');
+        const { data, error } = await supabaseAdmin
+            .from('blogs')
+            .select('*')
+            .order('created_at', { ascending: false });
+
+        if (error) return res.status(500).json({ error: error.message });
+
+        const published = (data || []).filter(isBlogPublished).map(normalizePublicBlog);
+        if (published.length === 0) {
+            return res.status(200).json({ blog: null });
+        }
+
+        // Prioritize blog with is_featured === true
+        const featured = published.find(b => b.is_featured === true) || published[0];
+        return res.status(200).json({ blog: featured });
     } catch (err) {
         return res.status(500).json({ error: 'Internal server error' });
     }
 });
 
-// Public route for listing all distinct blog categories
+// Public route for single blog detail by slug (or ID)
+app.get('/api/public/blogs/by-slug/:slug', async (req, res) => {
+    try {
+        const { supabaseAdmin } = require('./config/supabase');
+        const { slug } = req.params;
+        const isPreview = req.query.preview === 'true';
+
+        // Fetch all blogs to resolve slug or ID and find related articles
+        const { data, error } = await supabaseAdmin
+            .from('blogs')
+            .select('*');
+
+        if (error) return res.status(500).json({ error: error.message });
+
+        const allBlogs = data || [];
+        const match = allBlogs.find(b =>
+            String(b.slug).toLowerCase() === slug.toLowerCase() ||
+            String(b.id) === String(slug)
+        );
+
+        if (!match) {
+            return res.status(404).json({ error: 'Article not found' });
+        }
+
+        if (!isPreview && !isBlogPublished(match)) {
+            return res.status(403).json({ error: 'This article is not publicly available.' });
+        }
+
+        const normalizedBlog = normalizePublicBlog(match);
+
+        // Fetch up to 3 published related articles
+        let relatedArticles = [];
+        const publishedBlogs = allBlogs.filter(b => b.id !== match.id && isBlogPublished(b)).map(normalizePublicBlog);
+
+        // If author explicitly selected related articles in admin
+        if (Array.isArray(match.related_blog_ids) && match.related_blog_ids.length > 0) {
+            match.related_blog_ids.forEach(relId => {
+                const found = publishedBlogs.find(p => String(p.id) === String(relId));
+                if (found && !relatedArticles.some(r => r.id === found.id)) {
+                    relatedArticles.push(found);
+                }
+            });
+        }
+
+        // Fallback: fill up to 3 related articles from same category or newest
+        if (relatedArticles.length < 3) {
+            const sameCategory = publishedBlogs.filter(b =>
+                !relatedArticles.some(r => r.id === b.id) &&
+                b.categories.some(c => normalizedBlog.categories.some(nc => nc.toLowerCase() === c.toLowerCase()))
+            );
+            sameCategory.slice(0, 3 - relatedArticles.length).forEach(b => relatedArticles.push(b));
+        }
+
+        if (relatedArticles.length < 3) {
+            publishedBlogs.filter(b => !relatedArticles.some(r => r.id === b.id))
+                .slice(0, 3 - relatedArticles.length)
+                .forEach(b => relatedArticles.push(b));
+        }
+
+        return res.status(200).json({
+            blog: normalizedBlog,
+            relatedArticles: relatedArticles.slice(0, 3),
+        });
+    } catch (err) {
+        console.error('Fetch blog by slug error:', err);
+        return res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// Public route for listing all distinct blog categories + reference topics
 app.get('/api/public/blogs/categories', async (req, res) => {
     try {
         const { supabaseAdmin } = require('./config/supabase');
@@ -197,26 +334,102 @@ app.get('/api/public/blogs/categories', async (req, res) => {
 
         if (error) return res.status(500).json({ error: error.message });
 
-        const extractCategories = (val) => {
-            if (!val) return [];
-            if (Array.isArray(val)) return val.map(s => String(s).trim()).filter(Boolean);
-            if (typeof val === 'string') return val.split(',').map(s => s.trim()).filter(Boolean);
-            return [];
-        };
+        const published = (data || []).filter(isBlogPublished);
+        const categoryCounts = {};
 
-        const categorySet = new Set();
-        (data || []).forEach(b => {
-            [...extractCategories(b.topic), ...extractCategories(b.topic2)].forEach(t => {
-                if (t) categorySet.add(t);
+        // Always initialize reference categories
+        REFERENCE_TOPICS.forEach(topic => {
+            categoryCounts[topic] = 0;
+        });
+
+        published.forEach(b => {
+            getBlogCategories(b).forEach(t => {
+                const matchedRef = REFERENCE_TOPICS.find(ref => ref.toLowerCase() === t.toLowerCase()) || t;
+                categoryCounts[matchedRef] = (categoryCounts[matchedRef] || 0) + 1;
             });
         });
 
-        const categories = [...categorySet].sort((a, b) => a.localeCompare(b));
+        const categories = Object.keys(categoryCounts).map(name => ({
+            name,
+            count: categoryCounts[name],
+        }));
+
         return res.status(200).json({ categories });
     } catch (err) {
         return res.status(500).json({ error: 'Internal server error' });
     }
 });
+
+// Public route for comments (approved only)
+app.get('/api/public/blogs/:blogId/comments', async (req, res) => {
+    try {
+        const { supabaseAdmin } = require('./config/supabase');
+        const { blogId } = req.params;
+
+        const { data, error } = await supabaseAdmin
+            .from('blog_comments')
+            .select('id, blog_id, parent_id, user_name, content, is_admin, created_at')
+            .eq('blog_id', blogId)
+            .or('is_approved.eq.true,status.eq.approved,is_admin.eq.true')
+            .order('created_at', { ascending: true });
+
+        if (error) return res.status(500).json({ error: error.message });
+
+        return res.status(200).json({ comments: data || [] });
+    } catch (err) {
+        return res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// Public route for submitting reader comments for moderation
+app.post('/api/public/blogs/:blogId/comments', async (req, res) => {
+    try {
+        const { supabaseAdmin } = require('./config/supabase');
+        const { blogId } = req.params;
+        const { user_name, content, parent_id } = req.body;
+
+        if (!user_name || !user_name.trim() || !content || !content.trim()) {
+            return res.status(400).json({ error: 'Name and comment are required.' });
+        }
+
+        // Basic XSS sanitization
+        const sanitizedName = String(user_name).trim().slice(0, 100).replace(/<[^>]+>/g, '');
+        const sanitizedContent = String(content).trim().slice(0, 2000).replace(/<[^>]+>/g, '');
+
+        if (!sanitizedName || !sanitizedContent) {
+            return res.status(400).json({ error: 'Valid name and comment text are required.' });
+        }
+
+        const insertPayload = {
+            blog_id: blogId,
+            parent_id: parent_id || null,
+            user_name: sanitizedName,
+            content: sanitizedContent,
+            is_admin: false,
+            is_approved: false,
+            status: 'pending',
+        };
+
+        const { data, error } = await supabaseAdmin
+            .from('blog_comments')
+            .insert([insertPayload])
+            .select()
+            .single();
+
+        if (error) {
+            return res.status(500).json({ error: error.message });
+        }
+
+        return res.status(201).json({
+            message: 'Your comment has been submitted for review. It will appear once approved.',
+            comment: data,
+        });
+    } catch (err) {
+        console.error('Comment submit error:', err);
+        return res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
 
 // Helper: normalize a single ebook row for public API
 function normalizePublicProduct(p, idx = 0) {
@@ -352,6 +565,10 @@ app.use((err, req, res, next) => {
 
     if (err.message && err.message.includes('Invalid file type')) {
         return res.status(400).json({ error: err.message });
+    }
+
+    if (err.code === 'LIMIT_FILE_SIZE' || (err.message && err.message.includes('File too large'))) {
+        return res.status(400).json({ error: 'Image file is too large. Maximum allowed size is 5MB.' });
     }
 
     res.status(500).json({ error: err?.message || 'Internal server error' });

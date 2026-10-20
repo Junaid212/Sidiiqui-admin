@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { fetchComments, postComment, deleteComment } from '../services/commentService';
+import { fetchComments, postComment, deleteComment, approveComment, rejectComment } from '../services/commentService';
 import { fetchBlogById } from '../services/blogService';
 import toast from 'react-hot-toast';
 
@@ -13,6 +13,7 @@ export default function CommentManagement() {
     const [replyingTo, setReplyingTo] = useState(null);
     const [replyContent, setReplyContent] = useState('');
     const [newComment, setNewComment] = useState('');
+    const [filterTab, setFilterTab] = useState('all'); // 'all', 'pending', 'approved'
 
     useEffect(() => {
         loadData();
@@ -32,11 +33,30 @@ export default function CommentManagement() {
         }
     }
 
+    async function handleApprove(commentId) {
+        try {
+            await approveComment(commentId);
+            setComments(prev => prev.map(c => c.id === commentId ? { ...c, is_approved: true, status: 'approved' } : c));
+            toast.success('Comment approved and now visible publicly');
+        } catch (err) {
+            toast.error('Failed to approve comment');
+        }
+    }
+
+    async function handleReject(commentId) {
+        try {
+            await rejectComment(commentId);
+            setComments(prev => prev.map(c => c.id === commentId ? { ...c, is_approved: false, status: 'rejected' } : c));
+            toast.success('Comment rejected');
+        } catch (err) {
+            toast.error('Failed to reject comment');
+        }
+    }
+
     async function handleDelete(commentId) {
         if (!window.confirm('Delete this comment?')) return;
         try {
             await deleteComment(commentId);
-            // Re-fetch from DB to ensure cascaded deletes are reflected
             const fresh = await fetchComments(blogId);
             setComments(fresh);
             toast.success('Comment deleted');
@@ -60,7 +80,7 @@ export default function CommentManagement() {
             setComments(prev => [...prev, data]);
             setReplyingTo(null);
             setReplyContent('');
-            toast.success('Reply posted — now visible on the blog page');
+            toast.success('Reply posted — visible on the public article');
         } catch (err) {
             toast.error('Failed to post reply');
         }
@@ -79,7 +99,7 @@ export default function CommentManagement() {
             });
             setComments(prev => [...prev, data]);
             setNewComment('');
-            toast.success('Comment posted — now visible on the blog page');
+            toast.success('Comment posted as Admin');
         } catch (err) {
             toast.error('Failed to post comment');
         }
@@ -90,368 +110,222 @@ export default function CommentManagement() {
     const rootComments = comments.filter(c => !c.parent_id);
     const getReplies = (parentId) => comments.filter(c => c.parent_id === parentId);
 
+    const pendingComments = comments.filter(c => !c.is_admin && (c.is_approved === false || c.status === 'pending'));
+    const approvedComments = comments.filter(c => c.is_admin || c.is_approved === true || c.status === 'approved');
+
+    const displayedRootComments = rootComments.filter(c => {
+        if (filterTab === 'pending') return c.is_approved === false || c.status === 'pending';
+        if (filterTab === 'approved') return c.is_admin || c.is_approved === true || c.status === 'approved';
+        return true;
+    });
+
     return (
-        <>
-            <style>{`
-                .cm-back {
-                    display: inline-flex;
-                    align-items: center;
-                    gap: 6px;
-                    background: none;
-                    border: 1px solid var(--border-color);
-                    color: var(--text-secondary);
-                    padding: 6px 14px;
-                    border-radius: var(--radius-sm);
-                    font-size: 0.8rem;
-                    cursor: pointer;
-                    transition: var(--transition-fast);
-                    margin-bottom: 16px;
-                }
-                .cm-back:hover {
-                    border-color: var(--accent-primary);
-                    color: var(--accent-primary);
-                }
-                .cm-stats {
-                    display: flex;
-                    gap: 16px;
-                    margin-bottom: 24px;
-                }
-                .cm-stat-card {
-                    flex: 1;
-                    background: var(--bg-card);
-                    border: 1px solid var(--border-color);
-                    border-radius: var(--radius-md);
-                    padding: 16px 20px;
-                    text-align: center;
-                }
-                .cm-stat-number {
-                    font-size: 1.8rem;
-                    font-weight: 800;
-                    background: var(--accent-gradient);
-                    -webkit-background-clip: text;
-                    -webkit-text-fill-color: transparent;
-                }
-                .cm-stat-label {
-                    font-size: 0.75rem;
-                    color: var(--text-muted);
-                    text-transform: uppercase;
-                    letter-spacing: 1px;
-                    margin-top: 4px;
-                }
-                .cm-thread {
-                    background: var(--bg-card);
-                    border: 1px solid var(--border-color);
-                    border-radius: var(--radius-lg);
-                    padding: 24px;
-                    margin-bottom: 16px;
-                    transition: var(--transition-base);
-                }
-                .cm-thread:hover {
-                    border-color: rgba(255,255,255,0.1);
-                    box-shadow: 0 4px 20px rgba(0,0,0,0.2);
-                }
-                .cm-comment-header {
-                    display: flex;
-                    justify-content: space-between;
-                    align-items: flex-start;
-                    margin-bottom: 12px;
-                }
-                .cm-user-info {
-                    display: flex;
-                    align-items: center;
-                    gap: 10px;
-                }
-                .cm-avatar {
-                    width: 36px;
-                    height: 36px;
-                    border-radius: 50%;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    font-weight: 700;
-                    font-size: 0.85rem;
-                    color: #fff;
-                    flex-shrink: 0;
-                }
-                .cm-avatar.user { background: linear-gradient(135deg, #6366f1, #8b5cf6); }
-                .cm-avatar.admin { background: var(--accent-gradient); }
-                .cm-user-name {
-                    font-weight: 600;
-                    font-size: 0.9rem;
-                    color: var(--text-primary);
-                }
-                .cm-admin-badge {
-                    display: inline-block;
-                    background: var(--accent-gradient);
-                    color: #fff;
-                    font-size: 0.65rem;
-                    font-weight: 700;
-                    padding: 2px 8px;
-                    border-radius: 20px;
-                    margin-left: 8px;
-                    text-transform: uppercase;
-                    letter-spacing: 0.5px;
-                }
-                .cm-date {
-                    font-size: 0.75rem;
-                    color: var(--text-muted);
-                }
-                .cm-content {
-                    font-size: 0.92rem;
-                    line-height: 1.6;
-                    color: var(--text-primary);
-                    margin-bottom: 12px;
-                    padding-left: 46px;
-                }
-                .cm-actions {
-                    padding-left: 46px;
-                    display: flex;
-                    gap: 8px;
-                }
-                .cm-action-btn {
-                    background: none;
-                    border: 1px solid var(--border-color);
-                    color: var(--text-secondary);
-                    padding: 4px 12px;
-                    border-radius: var(--radius-sm);
-                    font-size: 0.78rem;
-                    cursor: pointer;
-                    transition: var(--transition-fast);
-                    display: inline-flex;
-                    align-items: center;
-                    gap: 4px;
-                }
-                .cm-action-btn:hover {
-                    border-color: var(--accent-primary);
-                    color: var(--accent-primary);
-                }
-                .cm-action-btn.danger:hover {
-                    border-color: var(--danger);
-                    color: var(--danger);
-                }
-                .cm-replies {
-                    margin-top: 16px;
-                    margin-left: 46px;
-                    border-left: 2px solid rgba(255,255,255,0.06);
-                    padding-left: 20px;
-                }
-                .cm-reply-item {
-                    padding: 12px 16px;
-                    background: var(--bg-glass);
-                    border: 1px solid var(--border-color);
-                    border-radius: var(--radius-md);
-                    margin-bottom: 10px;
-                    transition: var(--transition-fast);
-                }
-                .cm-reply-item:hover {
-                    background: var(--bg-hover);
-                }
-                .cm-reply-form {
-                    margin-top: 12px;
-                    margin-left: 46px;
-                    background: var(--bg-glass);
-                    border: 1px solid var(--border-color);
-                    border-radius: var(--radius-md);
-                    padding: 16px;
-                }
-                .cm-reply-form textarea {
-                    width: 100%;
-                    background: var(--bg-input);
-                    border: 1px solid var(--border-color);
-                    border-radius: var(--radius-sm);
-                    color: var(--text-primary);
-                    padding: 10px 14px;
-                    font-size: 0.88rem;
-                    resize: vertical;
-                    min-height: 60px;
-                    font-family: inherit;
-                }
-                .cm-reply-form textarea:focus {
-                    outline: none;
-                    border-color: var(--accent-primary);
-                }
-                .cm-new-comment {
-                    background: var(--bg-card);
-                    border: 1px solid var(--border-color);
-                    border-radius: var(--radius-lg);
-                    padding: 24px;
-                    margin-bottom: 24px;
-                }
-                .cm-new-comment h3 {
-                    font-size: 1rem;
-                    font-weight: 600;
-                    margin-bottom: 12px;
-                    color: var(--text-primary);
-                }
-                .cm-new-comment textarea {
-                    width: 100%;
-                    background: var(--bg-input);
-                    border: 1px solid var(--border-color);
-                    border-radius: var(--radius-sm);
-                    color: var(--text-primary);
-                    padding: 12px 16px;
-                    font-size: 0.9rem;
-                    resize: vertical;
-                    min-height: 80px;
-                    font-family: inherit;
-                    margin-bottom: 12px;
-                }
-                .cm-new-comment textarea:focus {
-                    outline: none;
-                    border-color: var(--accent-primary);
-                }
-                .cm-empty {
-                    text-align: center;
-                    padding: 60px 20px;
-                    color: var(--text-muted);
-                }
-                .cm-empty-icon {
-                    font-size: 3rem;
-                    margin-bottom: 12px;
-                    opacity: 0.5;
-                }
-            `}</style>
+        <div className="page">
+            <button className="btn btn--outline btn--sm" style={{ marginBottom: '16px' }} onClick={() => navigate('/blogs')}>
+                ← Back to Articles
+            </button>
 
-            <div className="page">
-                <button className="cm-back" onClick={() => navigate('/blogs')}>
-                    ← Back to Blogs
-                </button>
-
-                <div className="page__header" style={{ marginBottom: '24px' }}>
-                    <div>
-                        <h1 className="page__title" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                            💬 {blog?.title}
-                        </h1>
-                        <p className="page__subtitle">Manage comments and engage with your readers</p>
-                    </div>
+            <div className="page__header" style={{ marginBottom: '20px' }}>
+                <div>
+                    <h1 className="page__title">💬 Comment Moderation</h1>
+                    <p className="page__subtitle">Article: <strong>{blog?.title}</strong></p>
                 </div>
+            </div>
 
-                {/* Stats */}
-                <div className="cm-stats">
-                    <div className="cm-stat-card">
-                        <div className="cm-stat-number">{comments.length}</div>
-                        <div className="cm-stat-label">Total Comments</div>
-                    </div>
-                    <div className="cm-stat-card">
-                        <div className="cm-stat-number">{rootComments.length}</div>
-                        <div className="cm-stat-label">Threads</div>
-                    </div>
-                    <div className="cm-stat-card">
-                        <div className="cm-stat-number">{comments.filter(c => c.is_admin).length}</div>
-                        <div className="cm-stat-label">Admin Replies</div>
-                    </div>
+            {/* Stats Bar */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '16px', marginBottom: '20px' }}>
+                <div style={{ background: 'var(--bg-card)', padding: '16px', borderRadius: '8px', border: '1px solid var(--border-color)', textAlign: 'center' }}>
+                    <div style={{ fontSize: '1.8rem', fontWeight: '800', color: 'var(--text-primary)' }}>{comments.length}</div>
+                    <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Total Comments</div>
                 </div>
-
-                {/* Admin New Comment */}
-                <div className="cm-new-comment">
-                    <h3>✍️ Post as Admin</h3>
-                    <form onSubmit={handleNewComment}>
-                        <textarea
-                            placeholder="Write a comment as Admin — it will appear on the public blog page..."
-                            value={newComment}
-                            onChange={e => setNewComment(e.target.value)}
-                        />
-                        <button type="submit" className="btn btn--primary btn--sm">
-                            Post Comment
-                        </button>
-                    </form>
+                <div style={{ background: 'var(--bg-card)', padding: '16px', borderRadius: '8px', border: '1px solid var(--border-color)', textAlign: 'center' }}>
+                    <div style={{ fontSize: '1.8rem', fontWeight: '800', color: pendingComments.length > 0 ? '#f59e0b' : '#10b981' }}>{pendingComments.length}</div>
+                    <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Pending Review</div>
                 </div>
+                <div style={{ background: 'var(--bg-card)', padding: '16px', borderRadius: '8px', border: '1px solid var(--border-color)', textAlign: 'center' }}>
+                    <div style={{ fontSize: '1.8rem', fontWeight: '800', color: '#10b981' }}>{approvedComments.length}</div>
+                    <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Approved / Public</div>
+                </div>
+            </div>
 
-                {/* Comments List */}
-                <div className="comments-admin-list">
-                    {rootComments.length === 0 ? (
-                        <div className="cm-empty">
-                            <div className="cm-empty-icon">💬</div>
-                            <p>No comments on this post yet.</p>
-                            <p style={{ fontSize: '0.8rem' }}>Start the conversation by posting as Admin above!</p>
-                        </div>
-                    ) : (
-                        rootComments.map(comment => (
-                            <div key={comment.id} className="cm-thread">
-                                <div className="cm-comment-header">
-                                    <div className="cm-user-info">
-                                        <div className={`cm-avatar ${comment.is_admin ? 'admin' : 'user'}`}>
-                                            {comment.user_name.charAt(0).toUpperCase()}
-                                        </div>
-                                        <div>
-                                            <span className="cm-user-name">
-                                                {comment.user_name}
-                                                {comment.is_admin && <span className="cm-admin-badge">Admin</span>}
+            {/* Filter Tabs */}
+            <div style={{ display: 'flex', gap: '8px', marginBottom: '20px' }}>
+                {[
+                    { id: 'all', label: `All (${rootComments.length})` },
+                    { id: 'pending', label: `⏳ Pending Review (${pendingComments.length})` },
+                    { id: 'approved', label: `✓ Approved (${approvedComments.length})` },
+                ].map(tab => (
+                    <button
+                        key={tab.id}
+                        type="button"
+                        onClick={() => setFilterTab(tab.id)}
+                        style={{
+                            background: filterTab === tab.id ? 'var(--accent-primary, #A3192F)' : 'var(--bg-card)',
+                            color: filterTab === tab.id ? '#fff' : 'inherit',
+                            border: '1px solid var(--border-color)',
+                            padding: '6px 14px',
+                            borderRadius: '6px',
+                            fontSize: '0.85rem',
+                            fontWeight: '600',
+                            cursor: 'pointer'
+                        }}
+                    >
+                        {tab.label}
+                    </button>
+                ))}
+            </div>
+
+            {/* Admin New Comment */}
+            <div style={{ background: 'var(--bg-card)', padding: '18px', borderRadius: '10px', border: '1px solid var(--border-color)', marginBottom: '24px' }}>
+                <h4 style={{ margin: '0 0 10px', fontSize: '0.95rem' }}>✍️ Post Direct Comment as Author / Admin</h4>
+                <form onSubmit={handleNewComment} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                    <textarea
+                        rows={2}
+                        placeholder="Write a comment as Author / Admin (published immediately)..."
+                        value={newComment}
+                        onChange={e => setNewComment(e.target.value)}
+                        style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid var(--border-color)', background: 'var(--bg-input)' }}
+                    />
+                    <button type="submit" className="btn btn--primary btn--sm" style={{ alignSelf: 'flex-start' }}>
+                        Post Official Response
+                    </button>
+                </form>
+            </div>
+
+            {/* Comments Threads */}
+            <div className="comments-admin-list" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                {displayedRootComments.length === 0 ? (
+                    <div style={{ textAlign: 'center', padding: '40px', background: 'var(--bg-card)', borderRadius: '10px', color: 'var(--text-muted)' }}>
+                        <p>No comments in this section.</p>
+                    </div>
+                ) : (
+                    displayedRootComments.map(comment => {
+                        const isPending = !comment.is_admin && (comment.is_approved === false || comment.status === 'pending');
+                        const isApproved = comment.is_admin || comment.is_approved === true || comment.status === 'approved';
+
+                        return (
+                            <div key={comment.id} style={{
+                                background: 'var(--bg-card)',
+                                border: isPending ? '2px solid rgba(245, 158, 11, 0.5)' : '1px solid var(--border-color)',
+                                borderRadius: '10px',
+                                padding: '20px'
+                            }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '10px' }}>
+                                    <div>
+                                        <span style={{ fontWeight: '700', fontSize: '0.95rem' }}>{comment.user_name}</span>
+                                        {comment.is_admin && (
+                                            <span style={{ background: 'var(--accent-primary)', color: '#fff', fontSize: '0.65rem', padding: '2px 8px', borderRadius: '12px', marginLeft: '8px', fontWeight: 'bold' }}>
+                                                ADMIN
                                             </span>
-                                            <div className="cm-date">{new Date(comment.created_at).toLocaleString()}</div>
+                                        )}
+                                        {isPending && (
+                                            <span style={{ background: 'rgba(245, 158, 11, 0.2)', color: '#f59e0b', fontSize: '0.72rem', padding: '2px 8px', borderRadius: '12px', marginLeft: '8px', fontWeight: 'bold' }}>
+                                                ⏳ PENDING APPROVAL
+                                            </span>
+                                        )}
+                                        {isApproved && !comment.is_admin && (
+                                            <span style={{ background: 'rgba(16, 185, 129, 0.15)', color: '#10b981', fontSize: '0.72rem', padding: '2px 8px', borderRadius: '12px', marginLeft: '8px', fontWeight: 'bold' }}>
+                                                ✓ APPROVED
+                                            </span>
+                                        )}
+                                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                                            {new Date(comment.created_at).toLocaleString()}
                                         </div>
+                                    </div>
+
+                                    {/* Moderation Actions */}
+                                    <div style={{ display: 'flex', gap: '6px' }}>
+                                        {isPending && (
+                                            <button
+                                                type="button"
+                                                onClick={() => handleApprove(comment.id)}
+                                                style={{ background: '#10b981', color: '#fff', border: 'none', padding: '5px 12px', borderRadius: '4px', fontSize: '0.8rem', fontWeight: '600', cursor: 'pointer' }}
+                                            >
+                                                ✓ Approve
+                                            </button>
+                                        )}
+                                        {isApproved && !comment.is_admin && (
+                                            <button
+                                                type="button"
+                                                onClick={() => handleReject(comment.id)}
+                                                style={{ background: 'var(--bg-input)', color: '#f59e0b', border: '1px solid #f59e0b', padding: '5px 10px', borderRadius: '4px', fontSize: '0.8rem', cursor: 'pointer' }}
+                                            >
+                                                Unpublish
+                                            </button>
+                                        )}
+                                        <button
+                                            type="button"
+                                            className="btn btn--danger btn--sm"
+                                            onClick={() => handleDelete(comment.id)}
+                                        >
+                                            Delete
+                                        </button>
                                     </div>
                                 </div>
 
-                                <p className="cm-content">{comment.content}</p>
+                                <p style={{ margin: '10px 0 14px', fontSize: '0.92rem', lineHeight: '1.6' }}>
+                                    {comment.content}
+                                </p>
 
-                                <div className="cm-actions">
-                                    <button className="cm-action-btn" onClick={() => setReplyingTo(comment)}>
-                                        ↩ Reply
-                                    </button>
-                                    <button className="cm-action-btn danger" onClick={() => handleDelete(comment.id)}>
-                                        🗑 Delete
+                                <div style={{ display: 'flex', gap: '8px' }}>
+                                    <button
+                                        type="button"
+                                        className="btn btn--outline btn--sm"
+                                        onClick={() => setReplyingTo(comment)}
+                                    >
+                                        ↩ Reply as Admin
                                     </button>
                                 </div>
 
-                                {/* Replies */}
+                                {/* Replies list */}
                                 {getReplies(comment.id).length > 0 && (
-                                    <div className="cm-replies">
+                                    <div style={{ marginLeft: '24px', marginTop: '14px', borderLeft: '2px solid var(--border-color)', paddingLeft: '14px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
                                         {getReplies(comment.id).map(reply => (
-                                            <div key={reply.id} className="cm-reply-item">
-                                                <div className="cm-comment-header">
-                                                    <div className="cm-user-info">
-                                                        <div className={`cm-avatar ${reply.is_admin ? 'admin' : 'user'}`}
-                                                            style={{ width: 28, height: 28, fontSize: '0.75rem' }}>
-                                                            {reply.user_name.charAt(0).toUpperCase()}
-                                                        </div>
-                                                        <div>
-                                                            <span className="cm-user-name" style={{ fontSize: '0.85rem' }}>
-                                                                {reply.user_name}
-                                                                {reply.is_admin && <span className="cm-admin-badge">Admin</span>}
-                                                            </span>
-                                                            <div className="cm-date">{new Date(reply.created_at).toLocaleString()}</div>
-                                                        </div>
+                                            <div key={reply.id} style={{ background: 'var(--bg-input)', padding: '12px', borderRadius: '6px' }}>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                    <div>
+                                                        <span style={{ fontWeight: '700', fontSize: '0.85rem' }}>{reply.user_name}</span>
+                                                        {reply.is_admin && (
+                                                            <span style={{ background: 'var(--accent-primary)', color: '#fff', fontSize: '0.62rem', padding: '1px 6px', borderRadius: '8px', marginLeft: '6px' }}>ADMIN</span>
+                                                        )}
+                                                        <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginLeft: '8px' }}>
+                                                            {new Date(reply.created_at).toLocaleString()}
+                                                        </span>
                                                     </div>
-                                                </div>
-                                                <p style={{ fontSize: '0.88rem', color: 'var(--text-primary)', margin: '8px 0 8px 38px' }}>
-                                                    {reply.content}
-                                                </p>
-                                                <div style={{ paddingLeft: '38px' }}>
-                                                    <button className="cm-action-btn danger" onClick={() => handleDelete(reply.id)}>
-                                                        🗑 Delete
+                                                    <button type="button" className="btn btn--danger btn--sm" onClick={() => handleDelete(reply.id)} style={{ padding: '2px 6px', fontSize: '0.75rem' }}>
+                                                        Delete
                                                     </button>
                                                 </div>
+                                                <p style={{ margin: '6px 0 0', fontSize: '0.88rem' }}>{reply.content}</p>
                                             </div>
                                         ))}
                                     </div>
                                 )}
 
-                                {/* Reply Form */}
+                                {/* Reply Input */}
                                 {replyingTo?.id === comment.id && (
-                                    <div className="cm-reply-form">
-                                        <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '8px' }}>
-                                            Replying to <strong style={{ color: 'var(--text-primary)' }}>{comment.user_name}</strong>
-                                        </div>
+                                    <div style={{ marginTop: '12px', padding: '12px', background: 'var(--bg-input)', borderRadius: '6px' }}>
                                         <form onSubmit={handleReply}>
                                             <textarea
-                                                placeholder="Write your admin reply..."
+                                                rows={2}
+                                                placeholder={`Reply to ${comment.user_name}...`}
                                                 value={replyContent}
                                                 onChange={e => setReplyContent(e.target.value)}
                                                 autoFocus
+                                                style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid var(--border-color)' }}
                                             />
-                                            <div style={{ display: 'flex', gap: '8px', marginTop: '10px' }}>
+                                            <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
                                                 <button type="submit" className="btn btn--primary btn--sm">Post Reply</button>
-                                                <button type="button" className="btn btn--outline btn--sm" onClick={() => setReplyingTo(null)}>Cancel</button>
+                                                <button type="button" className="btn btn--ghost btn--sm" onClick={() => setReplyingTo(null)}>Cancel</button>
                                             </div>
                                         </form>
                                     </div>
                                 )}
                             </div>
-                        ))
-                    )}
-                </div>
+                        );
+                    })
+                )}
             </div>
-        </>
+        </div>
     );
 }

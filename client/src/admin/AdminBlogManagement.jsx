@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { fetchBlogs, createBlog, updateBlog, deleteBlog } from '../services/blogService';
+import { useState, useEffect, useMemo } from 'react';
+import { fetchBlogs, createBlog, updateBlog, deleteBlog, updateBlogStatus } from '../services/blogService';
 import BlogList from '../components/Blog/BlogList';
 import BlogForm from '../components/Blog/BlogForm';
 import toast from 'react-hot-toast';
@@ -9,6 +9,12 @@ export default function AdminBlogManagement() {
     const [loading, setLoading] = useState(true);
     const [showForm, setShowForm] = useState(false);
     const [editingBlog, setEditingBlog] = useState(null);
+    const [previewBlog, setPreviewBlog] = useState(null);
+
+    // Filters
+    const [searchQuery, setSearchQuery] = useState('');
+    const [statusFilter, setStatusFilter] = useState('all'); // 'all', 'published', 'draft', 'scheduled', 'featured'
+    const [categoryFilter, setCategoryFilter] = useState('all');
 
     useEffect(() => {
         loadBlogs();
@@ -19,7 +25,7 @@ export default function AdminBlogManagement() {
             const data = await fetchBlogs();
             setBlogs(data || []);
         } catch (err) {
-            toast.error('Failed to load blogs from Supabase');
+            toast.error('Failed to load blogs');
             console.error(err);
         } finally {
             setLoading(false);
@@ -31,9 +37,9 @@ export default function AdminBlogManagement() {
             const data = await createBlog(formData);
             setBlogs((prev) => [data, ...prev]);
             setShowForm(false);
-            toast.success('Blog created successfully');
+            toast.success('Article created successfully');
         } catch (err) {
-            toast.error(err.message || 'Failed to create blog');
+            toast.error(err.message || 'Failed to create article');
         }
     }
 
@@ -45,21 +51,42 @@ export default function AdminBlogManagement() {
             );
             setEditingBlog(null);
             setShowForm(false);
-            toast.success('Blog updated successfully');
+            toast.success('Article updated successfully');
         } catch (err) {
-            toast.error(err.message || 'Failed to update blog');
+            toast.error(err.message || 'Failed to update article');
+        }
+    }
+
+    async function handleStatusChange(id, updates) {
+        try {
+            const data = await updateBlogStatus(id, updates);
+            setBlogs((prev) =>
+                prev.map((b) => {
+                    if (b.id === id) {
+                        return { ...b, ...data };
+                    }
+                    // If newly featured, reset other blogs' is_featured
+                    if (updates.is_featured) {
+                        return { ...b, is_featured: false };
+                    }
+                    return b;
+                })
+            );
+        } catch (err) {
+            console.error('Failed to update status:', err);
+            throw err;
         }
     }
 
     async function handleDelete(id) {
-        if (!window.confirm('Are you sure you want to delete this blog post?')) return;
+        if (!window.confirm('Are you sure you want to delete this article?')) return;
 
         try {
             await deleteBlog(id);
             setBlogs((prev) => prev.filter((b) => b.id !== id));
-            toast.success('Blog deleted successfully');
+            toast.success('Article deleted successfully');
         } catch (err) {
-            toast.error('Failed to delete blog');
+            toast.error('Failed to delete article');
             console.error(err);
         }
     }
@@ -74,22 +101,75 @@ export default function AdminBlogManagement() {
         setEditingBlog(null);
     }
 
+    // Extract categories
+    const categories = useMemo(() => {
+        const set = new Set();
+        blogs.forEach(b => {
+            if (b.topic) set.add(b.topic.trim());
+            if (b.topic2) {
+                const parts = typeof b.topic2 === 'string' ? b.topic2.split(',') : b.topic2;
+                parts.forEach(p => {
+                    if (p.trim()) set.add(p.trim());
+                });
+            }
+        });
+        return Array.from(set).sort();
+    }, [blogs]);
+
+    // Filtered blogs
+    const filteredBlogs = useMemo(() => {
+        return blogs.filter(b => {
+            // Status filter
+            const st = (b.status || 'published').toLowerCase();
+            if (statusFilter === 'published' && st !== 'published') return false;
+            if (statusFilter === 'draft' && st !== 'draft') return false;
+            if (statusFilter === 'scheduled' && st !== 'scheduled') return false;
+            if (statusFilter === 'featured' && !b.is_featured) return false;
+
+            // Category filter
+            if (categoryFilter !== 'all') {
+                const bTopic = (b.topic || '').toLowerCase();
+                const bTopic2 = (b.topic2 || '').toLowerCase();
+                const target = categoryFilter.toLowerCase();
+                if (!bTopic.includes(target) && !bTopic2.includes(target)) return false;
+            }
+
+            // Search query
+            if (searchQuery.trim()) {
+                const q = searchQuery.toLowerCase();
+                const titleMatch = (b.title || '').toLowerCase().includes(q);
+                const contentMatch = (b.content || '').toLowerCase().includes(q);
+                const catMatch = (b.topic || '').toLowerCase().includes(q);
+                const slugMatch = (b.slug || '').toLowerCase().includes(q);
+                if (!titleMatch && !contentMatch && !catMatch && !slugMatch) return false;
+            }
+
+            return true;
+        });
+    }, [blogs, statusFilter, categoryFilter, searchQuery]);
+
+    // Statistics counts
+    const publishedCount = blogs.filter(b => (b.status || 'published') === 'published').length;
+    const draftCount = blogs.filter(b => b.status === 'draft').length;
+    const scheduledCount = blogs.filter(b => b.status === 'scheduled').length;
+    const featuredCount = blogs.filter(b => b.is_featured).length;
+
     if (loading) {
         return (
             <div className="page-loading">
                 <div className="spinner" />
-                <p>Loading blogs...</p>
+                <p>Loading editorial articles...</p>
             </div>
         );
     }
 
     return (
         <div className="page">
-            <div className="page__header">
+            <div className="page__header" style={{ marginBottom: '20px' }}>
                 <div>
-                    <h1 className="page__title">Admin Blog Management</h1>
+                    <h1 className="page__title">Editorial Blog Management</h1>
                     <p className="page__subtitle">
-                        {blogs.length} securely managed blog post{blogs.length !== 1 ? 's' : ''}
+                        {blogs.length} articles ({publishedCount} published, {draftCount} drafts, {scheduledCount} scheduled)
                     </p>
                 </div>
                 <button
@@ -99,18 +179,130 @@ export default function AdminBlogManagement() {
                         setShowForm(true);
                     }}
                 >
-                    + New Blog Post
+                    + New Editorial Article
                 </button>
             </div>
 
-            <BlogList blogs={blogs} onEdit={handleEdit} onDelete={handleDelete} />
+            {/* Filter and Search Bar */}
+            <div style={{ background: 'var(--bg-card)', padding: '16px 20px', borderRadius: '10px', border: '1px solid var(--border-color)', marginBottom: '24px', display: 'flex', flexWrap: 'wrap', gap: '16px', alignItems: 'center', justifyContent: 'space-between' }}>
+                {/* Search Input */}
+                <div style={{ flex: '1 1 260px' }}>
+                    <input
+                        type="text"
+                        placeholder="🔍 Search articles by title, keywords, or slug..."
+                        value={searchQuery}
+                        onChange={e => setSearchQuery(e.target.value)}
+                        style={{ width: '100%', padding: '9px 14px', borderRadius: '6px', border: '1px solid var(--border-color)', background: 'var(--bg-input)' }}
+                    />
+                </div>
 
+                {/* Status Tabs */}
+                <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                    {[
+                        { id: 'all', label: `All (${blogs.length})` },
+                        { id: 'published', label: `Published (${publishedCount})` },
+                        { id: 'draft', label: `Drafts (${draftCount})` },
+                        { id: 'scheduled', label: `Scheduled (${scheduledCount})` },
+                        { id: 'featured', label: `⭐ Featured (${featuredCount})` },
+                    ].map(tab => (
+                        <button
+                            key={tab.id}
+                            type="button"
+                            onClick={() => setStatusFilter(tab.id)}
+                            style={{
+                                background: statusFilter === tab.id ? 'var(--accent-primary, #A3192F)' : 'var(--bg-input)',
+                                color: statusFilter === tab.id ? '#fff' : 'var(--text-secondary)',
+                                border: '1px solid var(--border-color)',
+                                padding: '6px 12px',
+                                borderRadius: '6px',
+                                fontSize: '0.82rem',
+                                fontWeight: statusFilter === tab.id ? '700' : '500',
+                                cursor: 'pointer'
+                            }}
+                        >
+                            {tab.label}
+                        </button>
+                    ))}
+                </div>
+
+                {/* Category Filter */}
+                <div style={{ minWidth: '180px' }}>
+                    <select
+                        value={categoryFilter}
+                        onChange={e => setCategoryFilter(e.target.value)}
+                        style={{ width: '100%', padding: '9px 12px', borderRadius: '6px', border: '1px solid var(--border-color)', background: 'var(--bg-input)' }}
+                    >
+                        <option value="all">All Topics & Categories</option>
+                        {categories.map(cat => (
+                            <option key={cat} value={cat}>{cat}</option>
+                        ))}
+                    </select>
+                </div>
+            </div>
+
+            <BlogList
+                blogs={filteredBlogs}
+                onEdit={handleEdit}
+                onDelete={handleDelete}
+                onStatusChange={handleStatusChange}
+                onPreview={(b) => setPreviewBlog(b)}
+            />
+
+            {/* Create/Edit Form Modal */}
             {showForm && (
                 <BlogForm
                     blog={editingBlog}
+                    allBlogs={blogs}
                     onSubmit={editingBlog ? handleUpdate : handleCreate}
                     onCancel={handleCancel}
                 />
+            )}
+
+            {/* Standalone Dashboard Preview Modal */}
+            {previewBlog && (
+                <div className="modal-overlay" onClick={() => setPreviewBlog(null)} style={{ zIndex: 1100 }}>
+                    <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: '820px', width: '95%', maxHeight: '90vh', overflowY: 'auto' }}>
+                        <div className="modal__header" style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--border-color)', padding: '16px 20px' }}>
+                            <h3 style={{ margin: 0 }}>Article Reader Preview</h3>
+                            <button className="modal__close" onClick={() => setPreviewBlog(null)} style={{ background: 'none', border: 'none', fontSize: '1.5rem', cursor: 'pointer', color: 'inherit' }}>×</button>
+                        </div>
+                        <div style={{ background: '#ffffff', color: '#1B1F2A', padding: '36px 24px', fontFamily: "'Source Sans 3', sans-serif" }}>
+                            <div style={{ maxWidth: '720px', margin: '0 auto' }}>
+                                <div style={{ fontSize: '14px', fontWeight: '700', color: '#8A1528', marginBottom: '8px' }}>
+                                    {(previewBlog.topic || 'EDITORIAL').toUpperCase()}
+                                </div>
+                                <h1 style={{ fontFamily: "'Source Serif 4', Georgia, serif", fontSize: '36px', color: '#13294B', lineHeight: '1.2', margin: '0 0 16px' }}>
+                                    {previewBlog.title}
+                                </h1>
+                                {previewBlog.standfirst && (
+                                    <p style={{ fontSize: '20px', lineHeight: '1.5', color: '#3E4556', margin: '0 0 16px' }}>
+                                        {previewBlog.standfirst}
+                                    </p>
+                                )}
+                                <p style={{ fontSize: '15px', color: '#4A5163', marginBottom: '24px' }}>
+                                    {previewBlog.author_byline || 'By M. Q. Siddiqui, Founder, Siddiqui.digital'}
+                                </p>
+                                {previewBlog.image_url && (
+                                    <img src={previewBlog.image_url} alt="" style={{ width: '100%', borderRadius: '10px', marginBottom: '24px' }} />
+                                )}
+                                <div style={{ whiteSpace: 'pre-wrap', fontSize: '18px', lineHeight: '1.7' }}>
+                                    {previewBlog.content}
+                                </div>
+                                {previewBlog.pull_quote && (
+                                    <blockquote style={{ margin: '30px 0', padding: '16px 0', borderTop: '1px solid #E3E6EC', borderBottom: '1px solid #E3E6EC', textAlign: 'center', fontFamily: "'Source Serif 4', Georgia, serif", fontSize: '24px', color: '#A3192F' }}>
+                                        "{previewBlog.pull_quote}"
+                                    </blockquote>
+                                )}
+                                {previewBlog.concluding_insight && (
+                                    <div style={{ background: '#F4F5F8', borderRadius: '10px', padding: '20px', marginTop: '24px' }}>
+                                        <p style={{ fontWeight: '700', fontSize: '13px', color: '#13294B', margin: '0 0 6px' }}>CONCLUDING INSIGHT</p>
+                                        <p style={{ margin: 0 }}>{previewBlog.concluding_insight}</p>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                </div>
             )}
         </div>
     );

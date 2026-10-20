@@ -19,15 +19,22 @@ export async function fetchBlogById(id) {
 
 /**
  * Upload an image to the 'blogs' bucket
- * Note: Since backend handles upload, this client side function isn't strictly needed 
- * if we just pass the File directly to the backend. But if components rely on it, we'll keep it.
- * Actually, the backend /api/blogs endpoint accepts multipart/form-data.
  */
 export async function uploadCoverImage(file) {
-    // Keep this for compatibility if any UI components use it independently
     if (!file) return null;
 
-    const fileName = `${Date.now()}-${file.name.replace(/\s+/g, '-')}`;
+    const rawName = file.name || 'image';
+    const lastDot = rawName.lastIndexOf('.');
+    const ext = lastDot !== -1 ? rawName.slice(lastDot).toLowerCase() : '.jpg';
+    const nameWithoutExt = lastDot !== -1 ? rawName.slice(0, lastDot) : rawName;
+    const base = nameWithoutExt
+        .normalize('NFKD')
+        .replace(/[^\x00-\x7F]/g, '')
+        .replace(/[^a-zA-Z0-9_-]/g, '-')
+        .replace(/-+/g, '-')
+        .replace(/^-+|-+$/g, '') || 'image';
+
+    const fileName = `${Date.now()}-${base}${ext}`;
     const filePath = `blog-covers/${fileName}`;
 
     const { error: uploadError } = await supabase.storage
@@ -52,15 +59,11 @@ function formatTopic2(val) {
 
 /**
  * Create a new Blog record via admin backend.
- * If the formData contains an imageFile, sends as multipart/form-data
- * so the server's multer middleware handles the upload via service role.
- * Otherwise, sends as JSON (no new image).
  */
 export async function createBlog(blogData) {
     const formattedTopic2 = formatTopic2(blogData.topic2);
 
     if (blogData.imageFile) {
-        // Server-side image upload via multer
         const fd = new FormData();
         fd.append('image', blogData.imageFile);
         fd.append('title', blogData.title || '');
@@ -71,11 +74,31 @@ export async function createBlog(blogData) {
         if (blogData.title2) fd.append('title2', blogData.title2);
         if (blogData.content2) fd.append('content2', blogData.content2);
 
+        // Editorial fields
+        if (blogData.slug) fd.append('slug', blogData.slug);
+        if (blogData.summary) fd.append('summary', blogData.summary);
+        if (blogData.standfirst) fd.append('standfirst', blogData.standfirst);
+        if (blogData.reading_time) fd.append('reading_time', blogData.reading_time);
+        if (blogData.author_byline) fd.append('author_byline', blogData.author_byline);
+        if (blogData.image_caption) fd.append('image_caption', blogData.image_caption);
+        if (blogData.image_alt) fd.append('image_alt', blogData.image_alt);
+        if (blogData.pull_quote) fd.append('pull_quote', blogData.pull_quote);
+        if (blogData.pull_quote_author) fd.append('pull_quote_author', blogData.pull_quote_author);
+        if (blogData.concluding_insight) fd.append('concluding_insight', blogData.concluding_insight);
+        if (blogData.is_featured !== undefined) fd.append('is_featured', String(blogData.is_featured));
+        if (blogData.status) fd.append('status', blogData.status);
+        if (blogData.scheduled_for) fd.append('scheduled_for', blogData.scheduled_for);
+        if (blogData.related_to_book !== undefined) fd.append('related_to_book', String(blogData.related_to_book));
+        if (blogData.book_concept) fd.append('book_concept', blogData.book_concept);
+        if (blogData.related_blog_ids) fd.append('related_blog_ids', JSON.stringify(blogData.related_blog_ids));
+        if (blogData.seo_title) fd.append('seo_title', blogData.seo_title);
+        if (blogData.seo_description) fd.append('seo_description', blogData.seo_description);
+
         const data = await apiRequest('/blogs', { method: 'POST', body: fd });
         return data.blog;
     }
 
-    // No new file — JSON only (preserves existing image_url/image_path)
+    // No new file — JSON only
     const data = await apiRequest('/blogs', {
         method: 'POST',
         body: JSON.stringify({
@@ -88,6 +111,24 @@ export async function createBlog(blogData) {
             content2: blogData.content2,
             image_url: blogData.image_url,
             image_path: blogData.image_path,
+            slug: blogData.slug,
+            summary: blogData.summary,
+            standfirst: blogData.standfirst,
+            reading_time: blogData.reading_time,
+            author_byline: blogData.author_byline,
+            image_caption: blogData.image_caption,
+            image_alt: blogData.image_alt,
+            pull_quote: blogData.pull_quote,
+            pull_quote_author: blogData.pull_quote_author,
+            concluding_insight: blogData.concluding_insight,
+            is_featured: !!blogData.is_featured,
+            status: blogData.status || 'published',
+            scheduled_for: blogData.scheduled_for || null,
+            related_to_book: !!blogData.related_to_book,
+            book_concept: blogData.book_concept || null,
+            related_blog_ids: blogData.related_blog_ids || [],
+            seo_title: blogData.seo_title || null,
+            seo_description: blogData.seo_description || null,
         }),
     });
     return data.blog;
@@ -95,8 +136,6 @@ export async function createBlog(blogData) {
 
 /**
  * Update an existing Blog record via admin backend.
- * If formData contains an imageFile, sends as multipart so the server
- * can delete the old image and upload the new one via service role.
  */
 export async function updateBlog(id, blogData) {
     const formattedTopic2 = formatTopic2(blogData.topic2);
@@ -111,6 +150,26 @@ export async function updateBlog(id, blogData) {
         if (blogData.published_date) fd.append('published_date', blogData.published_date);
         if (blogData.title2) fd.append('title2', blogData.title2);
         if (blogData.content2) fd.append('content2', blogData.content2);
+
+        // Editorial fields
+        if (blogData.slug) fd.append('slug', blogData.slug);
+        if (blogData.summary) fd.append('summary', blogData.summary);
+        if (blogData.standfirst) fd.append('standfirst', blogData.standfirst);
+        if (blogData.reading_time) fd.append('reading_time', blogData.reading_time);
+        if (blogData.author_byline) fd.append('author_byline', blogData.author_byline);
+        if (blogData.image_caption) fd.append('image_caption', blogData.image_caption);
+        if (blogData.image_alt) fd.append('image_alt', blogData.image_alt);
+        if (blogData.pull_quote) fd.append('pull_quote', blogData.pull_quote);
+        if (blogData.pull_quote_author) fd.append('pull_quote_author', blogData.pull_quote_author);
+        if (blogData.concluding_insight) fd.append('concluding_insight', blogData.concluding_insight);
+        if (blogData.is_featured !== undefined) fd.append('is_featured', String(blogData.is_featured));
+        if (blogData.status) fd.append('status', blogData.status);
+        if (blogData.scheduled_for) fd.append('scheduled_for', blogData.scheduled_for);
+        if (blogData.related_to_book !== undefined) fd.append('related_to_book', String(blogData.related_to_book));
+        if (blogData.book_concept) fd.append('book_concept', blogData.book_concept);
+        if (blogData.related_blog_ids) fd.append('related_blog_ids', JSON.stringify(blogData.related_blog_ids));
+        if (blogData.seo_title) fd.append('seo_title', blogData.seo_title);
+        if (blogData.seo_description) fd.append('seo_description', blogData.seo_description);
 
         const data = await apiRequest(`/blogs/${id}`, { method: 'PUT', body: fd });
         return data.blog;
@@ -129,7 +188,36 @@ export async function updateBlog(id, blogData) {
             content2: blogData.content2,
             image_url: blogData.image_url,
             image_path: blogData.image_path,
+            slug: blogData.slug,
+            summary: blogData.summary,
+            standfirst: blogData.standfirst,
+            reading_time: blogData.reading_time,
+            author_byline: blogData.author_byline,
+            image_caption: blogData.image_caption,
+            image_alt: blogData.image_alt,
+            pull_quote: blogData.pull_quote,
+            pull_quote_author: blogData.pull_quote_author,
+            concluding_insight: blogData.concluding_insight,
+            is_featured: !!blogData.is_featured,
+            status: blogData.status,
+            scheduled_for: blogData.scheduled_for || null,
+            related_to_book: !!blogData.related_to_book,
+            book_concept: blogData.book_concept || null,
+            related_blog_ids: blogData.related_blog_ids || [],
+            seo_title: blogData.seo_title || null,
+            seo_description: blogData.seo_description || null,
         }),
+    });
+    return data.blog;
+}
+
+/**
+ * Fast status / featured toggle via PATCH
+ */
+export async function updateBlogStatus(id, { status, is_featured }) {
+    const data = await apiRequest(`/blogs/${id}/status`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status, is_featured })
     });
     return data.blog;
 }
