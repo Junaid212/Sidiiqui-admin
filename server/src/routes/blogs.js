@@ -1,3 +1,15 @@
+
+function enrichBlogSocials(b) {
+    if (!b) return b;
+    const socials = blogSocialsStore.getSocials(b.id);
+    return {
+        ...b,
+        linkedin_url: b.linkedin_url || socials.linkedin_url || null,
+        instagram_url: b.instagram_url || socials.instagram_url || null,
+        facebook_url: b.facebook_url || socials.facebook_url || null,
+    };
+}
+const blogSocialsStore = require('../utils/blogSocialsStore');
 const express = require('express');
 const router = express.Router();
 const multer = require('multer');
@@ -96,7 +108,7 @@ router.get('/', async (req, res) => {
             return res.status(500).json({ error: error.message });
         }
 
-        return res.status(200).json({ blogs: data || [] });
+        return res.status(200).json({ blogs: (data || []).map(enrichBlogSocials) });
     } catch (err) {
         console.error('Fetch blogs error:', err);
         return res.status(500).json({ error: 'Internal server error' });
@@ -116,7 +128,7 @@ router.get('/:id', async (req, res) => {
             return res.status(404).json({ error: 'Blog not found' });
         }
 
-        return res.status(200).json({ blog: data });
+        return res.status(200).json({ blog: enrichBlogSocials(data) });
     } catch (err) {
         console.error('Fetch blog error:', err);
         return res.status(500).json({ error: 'Internal server error' });
@@ -204,6 +216,9 @@ router.post('/', upload.single('image'), async (req, res) => {
             related_blog_ids,
             seo_title,
             seo_description,
+            linkedin_url,
+            instagram_url,
+            facebook_url,
         } = req.body;
 
         if (!title || !content) {
@@ -264,6 +279,9 @@ router.post('/', upload.single('image'), async (req, res) => {
             related_blog_ids: parsedRelatedIds,
             seo_title: seo_title || null,
             seo_description: seo_description || null,
+            linkedin_url: linkedin_url ? String(linkedin_url).trim() : null,
+            instagram_url: instagram_url ? String(instagram_url).trim() : null,
+            facebook_url: facebook_url ? String(facebook_url).trim() : null,
         };
 
         // If newly featured, reset other featured articles
@@ -280,7 +298,10 @@ router.post('/', upload.single('image'), async (req, res) => {
             return res.status(500).json({ error: error.message || 'Failed to create blog' });
         }
 
-        return res.status(201).json({ blog: data });
+        if (data && data.id) {
+            blogSocialsStore.setSocials(data.id, { linkedin_url, instagram_url, facebook_url });
+        }
+        return res.status(201).json({ blog: enrichBlogSocials(data) });
     } catch (err) {
         console.error('Create blog error:', err);
         return res.status(500).json({ error: err?.message || 'Failed to create blog' });
@@ -317,6 +338,9 @@ router.put('/:id', upload.single('image'), async (req, res) => {
             related_blog_ids,
             seo_title,
             seo_description,
+            linkedin_url,
+            instagram_url,
+            facebook_url,
         } = req.body;
 
         const { data: existing, error: fetchError } = await supabaseAdmin
@@ -355,6 +379,9 @@ router.put('/:id', upload.single('image'), async (req, res) => {
         if (book_concept !== undefined) updateData.book_concept = book_concept || null;
         if (seo_title !== undefined) updateData.seo_title = seo_title || null;
         if (seo_description !== undefined) updateData.seo_description = seo_description || null;
+        if (linkedin_url !== undefined) updateData.linkedin_url = linkedin_url ? String(linkedin_url).trim() : null;
+        if (instagram_url !== undefined) updateData.instagram_url = instagram_url ? String(instagram_url).trim() : null;
+        if (facebook_url !== undefined) updateData.facebook_url = facebook_url ? String(facebook_url).trim() : null;
 
         if (is_featured !== undefined) {
             const boolFeatured = is_featured === true || is_featured === 'true';
@@ -393,7 +420,10 @@ router.put('/:id', upload.single('image'), async (req, res) => {
             return res.status(500).json({ error: error.message || 'Failed to update blog' });
         }
 
-        return res.status(200).json({ blog: data });
+        if (blogId) {
+            blogSocialsStore.setSocials(blogId, { linkedin_url, instagram_url, facebook_url });
+        }
+        return res.status(200).json({ blog: enrichBlogSocials(data) });
     } catch (err) {
         console.error('Update blog error:', err);
         return res.status(500).json({ error: err?.message || 'Failed to update article' });

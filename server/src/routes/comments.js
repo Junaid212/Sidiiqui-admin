@@ -47,7 +47,7 @@ router.post('/', async (req, res) => {
             .insert([{
                 blog_id,
                 parent_id: parent_id || null,
-                user_name: user_name || 'Admin',
+                user_name: (user_name && user_name.trim().toLowerCase() !== 'admin') ? user_name.trim() : 'M. Q. Siddiqui',
                 content,
                 is_admin: is_admin !== false,
                 admin_id: adminId,

@@ -93,6 +93,9 @@ export async function createBlog(blogData) {
         if (blogData.related_blog_ids) fd.append('related_blog_ids', JSON.stringify(blogData.related_blog_ids));
         if (blogData.seo_title) fd.append('seo_title', blogData.seo_title);
         if (blogData.seo_description) fd.append('seo_description', blogData.seo_description);
+        if (blogData.linkedin_url !== undefined) fd.append('linkedin_url', blogData.linkedin_url || '');
+        if (blogData.instagram_url !== undefined) fd.append('instagram_url', blogData.instagram_url || '');
+        if (blogData.facebook_url !== undefined) fd.append('facebook_url', blogData.facebook_url || '');
 
         const data = await apiRequest('/blogs', { method: 'POST', body: fd });
         return data.blog;
@@ -129,6 +132,9 @@ export async function createBlog(blogData) {
             related_blog_ids: blogData.related_blog_ids || [],
             seo_title: blogData.seo_title || null,
             seo_description: blogData.seo_description || null,
+            linkedin_url: blogData.linkedin_url || null,
+            instagram_url: blogData.instagram_url || null,
+            facebook_url: blogData.facebook_url || null,
         }),
     });
     return data.blog;
@@ -170,6 +176,9 @@ export async function updateBlog(id, blogData) {
         if (blogData.related_blog_ids) fd.append('related_blog_ids', JSON.stringify(blogData.related_blog_ids));
         if (blogData.seo_title) fd.append('seo_title', blogData.seo_title);
         if (blogData.seo_description) fd.append('seo_description', blogData.seo_description);
+        if (blogData.linkedin_url !== undefined) fd.append('linkedin_url', blogData.linkedin_url || '');
+        if (blogData.instagram_url !== undefined) fd.append('instagram_url', blogData.instagram_url || '');
+        if (blogData.facebook_url !== undefined) fd.append('facebook_url', blogData.facebook_url || '');
 
         const data = await apiRequest(`/blogs/${id}`, { method: 'PUT', body: fd });
         return data.blog;
@@ -206,6 +215,9 @@ export async function updateBlog(id, blogData) {
             related_blog_ids: blogData.related_blog_ids || [],
             seo_title: blogData.seo_title || null,
             seo_description: blogData.seo_description || null,
+            linkedin_url: blogData.linkedin_url || null,
+            instagram_url: blogData.instagram_url || null,
+            facebook_url: blogData.facebook_url || null,
         }),
     });
     return data.blog;

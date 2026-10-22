@@ -291,6 +291,8 @@ router.post('/upload-file', uploadProductMiddleware, async (req, res) => {
 function extractPublicationFields(body) {
   const fields = {};
 
+  // Unique Publication Code and Book Code Validation
+  if (body.publication_code !== undefined) fields.publication_code = body.publication_code || body.sku || null;
   if (body.subtitle !== undefined) fields.subtitle = body.subtitle || null;
   if (body.slug !== undefined) fields.slug = body.slug || null;
   if (body.publication_status !== undefined) fields.publication_status = body.publication_status || 'available';

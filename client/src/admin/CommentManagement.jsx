@@ -73,7 +73,7 @@ export default function CommentManagement() {
             const data = await postComment({
                 blog_id: blogId,
                 parent_id: replyingTo.id,
-                user_name: 'Admin',
+                user_name: 'M. Q. Siddiqui',
                 content: replyContent,
                 is_admin: true
             });
@@ -93,7 +93,7 @@ export default function CommentManagement() {
             const data = await postComment({
                 blog_id: blogId,
                 parent_id: null,
-                user_name: 'Admin',
+                user_name: 'M. Q. Siddiqui',
                 content: newComment,
                 is_admin: true
             });
@@ -212,10 +212,10 @@ export default function CommentManagement() {
                             }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '10px' }}>
                                     <div>
-                                        <span style={{ fontWeight: '700', fontSize: '0.95rem' }}>{comment.user_name}</span>
+                                        <span style={{ fontWeight: '700', fontSize: '0.95rem' }}>{comment.is_admin || comment.user_name?.toLowerCase() === 'admin' ? 'M. Q. Siddiqui' : comment.user_name}</span>
                                         {comment.is_admin && (
                                             <span style={{ background: 'var(--accent-primary)', color: '#fff', fontSize: '0.65rem', padding: '2px 8px', borderRadius: '12px', marginLeft: '8px', fontWeight: 'bold' }}>
-                                                ADMIN
+                                                AUTHOR
                                             </span>
                                         )}
                                         {isPending && (
@@ -273,7 +273,7 @@ export default function CommentManagement() {
                                         className="btn btn--outline btn--sm"
                                         onClick={() => setReplyingTo(comment)}
                                     >
-                                        ↩ Reply as Admin
+                                        ↩ Reply as M. Q. Siddiqui
                                     </button>
                                 </div>
 
@@ -284,9 +284,9 @@ export default function CommentManagement() {
                                             <div key={reply.id} style={{ background: 'var(--bg-input)', padding: '12px', borderRadius: '6px' }}>
                                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                                     <div>
-                                                        <span style={{ fontWeight: '700', fontSize: '0.85rem' }}>{reply.user_name}</span>
+                                                        <span style={{ fontWeight: '700', fontSize: '0.85rem' }}>{reply.is_admin || reply.user_name?.toLowerCase() === 'admin' ? 'M. Q. Siddiqui' : reply.user_name}</span>
                                                         {reply.is_admin && (
-                                                            <span style={{ background: 'var(--accent-primary)', color: '#fff', fontSize: '0.62rem', padding: '1px 6px', borderRadius: '8px', marginLeft: '6px' }}>ADMIN</span>
+                                                            <span style={{ background: 'var(--accent-primary)', color: '#fff', fontSize: '0.62rem', padding: '1px 6px', borderRadius: '8px', marginLeft: '6px', fontWeight: 'bold' }}>AUTHOR</span>
                                                         )}
                                                         <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginLeft: '8px' }}>
                                                             {new Date(reply.created_at).toLocaleString()}

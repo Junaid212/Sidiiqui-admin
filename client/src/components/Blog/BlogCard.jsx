@@ -181,6 +181,38 @@ export default function BlogCard({ blog, onEdit, onDelete, onStatusChange, onPre
                         <span>⏳ {blog.reading_time}</span>
                     )}
                 </div>
+
+                {/* Social Links Status / Placeholder */}
+                {(blog.linkedin_url || blog.instagram_url || blog.facebook_url) ? (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 12px', background: 'rgba(255,255,255,0.03)', borderRadius: '6px', fontSize: '0.8rem', marginTop: '10px' }}>
+                        <span style={{ color: 'var(--text-muted)', fontSize: '0.78rem' }}>Socials:</span>
+                        {blog.linkedin_url && (
+                            <a href={blog.linkedin_url} target="_blank" rel="noreferrer" title={`LinkedIn: ${blog.linkedin_url}`} style={{ color: '#0A66C2', textDecoration: 'none', fontWeight: 'bold', fontSize: '0.85rem' }}>
+                                in
+                            </a>
+                        )}
+                        {blog.instagram_url && (
+                            <a href={blog.instagram_url} target="_blank" rel="noreferrer" title={`Instagram: ${blog.instagram_url}`} style={{ color: '#E4405F', textDecoration: 'none', fontSize: '0.85rem' }}>
+                                📷
+                            </a>
+                        )}
+                        {blog.facebook_url && (
+                            <a href={blog.facebook_url} target="_blank" rel="noreferrer" title={`Facebook: ${blog.facebook_url}`} style={{ color: '#1877F2', textDecoration: 'none', fontWeight: 'bold', fontSize: '0.85rem' }}>
+                                f
+                            </a>
+                        )}
+                        <button type="button" onClick={() => onEdit(blog)} style={{ marginLeft: 'auto', background: 'none', border: 'none', color: 'var(--accent-primary)', cursor: 'pointer', fontSize: '0.75rem', textDecoration: 'underline' }}>
+                            Edit
+                        </button>
+                    </div>
+                ) : (
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '7px 12px', background: 'rgba(255,255,255,0.02)', border: '1px dashed var(--border-color)', borderRadius: '6px', fontSize: '0.76rem', color: 'var(--text-muted)', marginTop: '10px' }}>
+                        <span>🌐 No social links</span>
+                        <button type="button" onClick={() => onEdit(blog)} style={{ background: 'none', border: 'none', color: 'var(--accent-primary)', cursor: 'pointer', fontSize: '0.76rem', fontWeight: '600' }}>
+                            + Add Social Links
+                        </button>
+                    </div>
+                )}
             </div>
 
             <div className="blog-card__actions" style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', padding: '12px 16px', borderTop: '1px solid var(--border-color)' }}>

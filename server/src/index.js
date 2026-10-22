@@ -173,8 +173,16 @@ function isBlogPublished(b) {
 
 function normalizePublicBlog(b) {
     const cats = getBlogCategories(b);
+    let socials = { linkedin_url: null, instagram_url: null, facebook_url: null };
+    try {
+        const blogSocialsStore = require('./utils/blogSocialsStore');
+        socials = blogSocialsStore.getSocials(b.id);
+    } catch (_) {}
     return {
         ...b,
+        linkedin_url: b.linkedin_url || socials.linkedin_url || null,
+        instagram_url: b.instagram_url || socials.instagram_url || null,
+        facebook_url: b.facebook_url || socials.facebook_url || null,
         category: cats[0] || b.topic || 'General',
         category2: cats[1] || b.topic2 || null,
         categories: cats,
@@ -375,7 +383,13 @@ app.get('/api/public/blogs/:blogId/comments', async (req, res) => {
 
         if (error) return res.status(500).json({ error: error.message });
 
-        return res.status(200).json({ comments: data || [] });
+        const sanitizedComments = (data || []).map(c => ({
+            ...c,
+            user_name: (c.is_admin || (c.user_name && c.user_name.toLowerCase().trim() === 'admin'))
+                ? 'M. Q. Siddiqui'
+                : (c.user_name || 'Reader'),
+        }));
+        return res.status(200).json({ comments: sanitizedComments });
     } catch (err) {
         return res.status(500).json({ error: 'Internal server error' });
     }

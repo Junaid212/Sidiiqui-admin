@@ -58,6 +58,11 @@ export default function BlogForm({ blog, allBlogs = [], onSubmit, onCancel }) {
     const [seo_title, setSeoTitle] = useState('');
     const [seo_description, setSeoDescription] = useState('');
 
+    // Social Links
+    const [linkedin_url, setLinkedinUrl] = useState('');
+    const [instagram_url, setInstagramUrl] = useState('');
+    const [facebook_url, setFacebookUrl] = useState('');
+
     // UI state
     const [activeTab, setActiveTab] = useState('edit'); // 'edit' or 'preview'
     const [submitting, setSubmitting] = useState(false);
@@ -144,9 +149,16 @@ export default function BlogForm({ blog, allBlogs = [], onSubmit, onCancel }) {
 
             setSeoTitle(blog.seo_title || '');
             setSeoDescription(blog.seo_description || '');
+
+            setLinkedinUrl(blog.linkedin_url || '');
+            setInstagramUrl(blog.instagram_url || '');
+            setFacebookUrl(blog.facebook_url || '');
         } else {
             setPublishedDate(new Date().toISOString().split('T')[0]);
             setReadingTime('3 min read');
+            setLinkedinUrl('');
+            setInstagramUrl('');
+            setFacebookUrl('');
         }
     }, [blog]);
 
@@ -254,6 +266,10 @@ export default function BlogForm({ blog, allBlogs = [], onSubmit, onCancel }) {
 
                 seo_title: seo_title.trim(),
                 seo_description: seo_description.trim(),
+
+                linkedin_url: linkedin_url.trim(),
+                instagram_url: instagram_url.trim(),
+                facebook_url: facebook_url.trim(),
             };
 
             await onSubmit(formData);
@@ -847,6 +863,57 @@ export default function BlogForm({ blog, allBlogs = [], onSubmit, onCancel }) {
                                         placeholder={summary || 'A compelling summary for search results...'}
                                     />
                                     <small style={{ color: 'var(--text-muted)' }}>{seo_description.length} characters</small>
+                                </div>
+                            </div>
+
+                            {/* SECTION 7: SOCIAL MEDIA LINKS */}
+                            <div style={{ background: 'var(--bg-card)', padding: '20px', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+                                <h3 style={{ fontSize: '1.05rem', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--accent-primary)' }}>
+                                    🌐 7. Social Media Links (Optional)
+                                </h3>
+                                <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginBottom: '16px' }}>
+                                    Add links to display on the blog card and blog post. If you leave a platform empty, its icon will NOT be shown on the blog card or main page.
+                                </p>
+
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                                    <div className="form-group">
+                                        <label htmlFor="blog-linkedin-url" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                            <span style={{ color: '#0A66C2', fontWeight: 'bold' }}>in</span> LinkedIn URL
+                                        </label>
+                                        <input
+                                            id="blog-linkedin-url"
+                                            type="url"
+                                            value={linkedin_url}
+                                            onChange={(e) => setLinkedinUrl(e.target.value)}
+                                            placeholder="https://linkedin.com/in/username or post URL (leave blank to omit)"
+                                        />
+                                    </div>
+
+                                    <div className="form-group">
+                                        <label htmlFor="blog-instagram-url" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                            <span style={{ color: '#E4405F', fontWeight: 'bold' }}>📷</span> Instagram URL
+                                        </label>
+                                        <input
+                                            id="blog-instagram-url"
+                                            type="url"
+                                            value={instagram_url}
+                                            onChange={(e) => setInstagramUrl(e.target.value)}
+                                            placeholder="https://instagram.com/username or post URL (leave blank to omit)"
+                                        />
+                                    </div>
+
+                                    <div className="form-group">
+                                        <label htmlFor="blog-facebook-url" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                            <span style={{ color: '#1877F2', fontWeight: 'bold' }}>f</span> Facebook URL
+                                        </label>
+                                        <input
+                                            id="blog-facebook-url"
+                                            type="url"
+                                            value={facebook_url}
+                                            onChange={(e) => setFacebookUrl(e.target.value)}
+                                            placeholder="https://facebook.com/username or post URL (leave blank to omit)"
+                                        />
+                                    </div>
                                 </div>
                             </div>
 
