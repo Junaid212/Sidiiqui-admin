@@ -65,18 +65,5 @@
     "is_active": true,
     "expires_at": null,
     "created_at": "2026-09-28T07:11:50.386Z"
-  },
-  {
-    "id": "coup_books25",
-    "code": "BOOKS25",
-    "discount_percentage": 25,
-    "discount_type": "percentage",
-    "description": "Special book bundle discount — 25% off",
-    "min_order_amount": 50,
-    "max_uses": 50,
-    "times_used": 5,
-    "is_active": true,
-    "expires_at": null,
-    "created_at": "2026-09-28T07:11:50.386Z"
   }
 ]
