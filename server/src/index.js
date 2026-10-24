@@ -178,8 +178,15 @@ function normalizePublicBlog(b) {
         const blogSocialsStore = require('./utils/blogSocialsStore');
         socials = blogSocialsStore.getSocials(b.id);
     } catch (_) {}
+
+    let enriched = b;
+    try {
+        const blogSubsectionsStore = require('./utils/blogSubsectionsStore');
+        enriched = blogSubsectionsStore.enrichBlogSubsections(b);
+    } catch (_) {}
+
     return {
-        ...b,
+        ...enriched,
         linkedin_url: b.linkedin_url || socials.linkedin_url || null,
         instagram_url: b.instagram_url || socials.instagram_url || null,
         facebook_url: b.facebook_url || socials.facebook_url || null,

@@ -1,4 +1,7 @@
 
+const blogSocialsStore = require('../utils/blogSocialsStore');
+const blogSubsectionsStore = require('../utils/blogSubsectionsStore');
+
 function enrichBlogSocials(b) {
     if (!b) return b;
     const socials = blogSocialsStore.getSocials(b.id);
@@ -9,7 +12,11 @@ function enrichBlogSocials(b) {
         facebook_url: b.facebook_url || socials.facebook_url || null,
     };
 }
-const blogSocialsStore = require('../utils/blogSocialsStore');
+
+function enrichBlogRecord(b) {
+    if (!b) return b;
+    return blogSubsectionsStore.enrichBlogSubsections(enrichBlogSocials(b));
+}
 const express = require('express');
 const router = express.Router();
 const multer = require('multer');
@@ -108,7 +115,7 @@ router.get('/', async (req, res) => {
             return res.status(500).json({ error: error.message });
         }
 
-        return res.status(200).json({ blogs: (data || []).map(enrichBlogSocials) });
+        return res.status(200).json({ blogs: (data || []).map(enrichBlogRecord) });
     } catch (err) {
         console.error('Fetch blogs error:', err);
         return res.status(500).json({ error: 'Internal server error' });
@@ -128,7 +135,7 @@ router.get('/:id', async (req, res) => {
             return res.status(404).json({ error: 'Blog not found' });
         }
 
-        return res.status(200).json({ blog: enrichBlogSocials(data) });
+        return res.status(200).json({ blog: enrichBlogRecord(data) });
     } catch (err) {
         console.error('Fetch blog error:', err);
         return res.status(500).json({ error: 'Internal server error' });
@@ -198,6 +205,8 @@ router.post('/', upload.single('image'), async (req, res) => {
             content,
             title2,
             content2,
+            sub_sections,
+            pull_quote_position,
             slug,
             summary,
             standfirst,
@@ -240,6 +249,38 @@ router.post('/', upload.single('image'), async (req, res) => {
         const boolFeatured = is_featured === true || is_featured === 'true';
         const boolBook = related_to_book === true || related_to_book === 'true';
 
+        // Parse sub_sections & sync with legacy title2/content2
+        let parsedSubSections = [];
+        if (sub_sections) {
+            try {
+                parsedSubSections = typeof sub_sections === 'string' ? JSON.parse(sub_sections) : sub_sections;
+            } catch (_) {
+                parsedSubSections = [];
+            }
+        }
+        if (!Array.isArray(parsedSubSections)) parsedSubSections = [];
+
+        let resolvedTitle2 = title2 ? String(title2).trim() : null;
+        let resolvedContent2 = content2 ? String(content2) : null;
+        if (parsedSubSections.length > 0) {
+            resolvedTitle2 = parsedSubSections[0].heading ? String(parsedSubSections[0].heading).trim() : null;
+            resolvedContent2 = parsedSubSections[0].body ? String(parsedSubSections[0].body) : null;
+        } else if (title2 || content2) {
+            parsedSubSections = [
+                {
+                    id: 'sub-legacy-1',
+                    heading: resolvedTitle2 || '',
+                    body: resolvedContent2 || '',
+                    highlight_type: 'none',
+                    highlight_text: '',
+                }
+            ];
+        }
+
+        const resolvedPullQuotePos = pull_quote_position !== undefined && pull_quote_position !== null
+            ? Number(pull_quote_position)
+            : 1;
+
         // Parse related_blog_ids if passed as JSON string or array
         let parsedRelatedIds = [];
         if (related_blog_ids) {
@@ -257,8 +298,10 @@ router.post('/', upload.single('image'), async (req, res) => {
             published_date: sanitizeDate(published_date),
             title,
             content,
-            title2: title2 || null,
-            content2: content2 || null,
+            title2: resolvedTitle2,
+            content2: resolvedContent2,
+            sub_sections: parsedSubSections,
+            pull_quote_position: resolvedPullQuotePos,
             image_url,
             image_path,
             slug: finalSlug,
@@ -300,8 +343,12 @@ router.post('/', upload.single('image'), async (req, res) => {
 
         if (data && data.id) {
             blogSocialsStore.setSocials(data.id, { linkedin_url, instagram_url, facebook_url });
+            blogSubsectionsStore.setSubsections(data.id, {
+                sub_sections: parsedSubSections,
+                pull_quote_position: resolvedPullQuotePos,
+            });
         }
-        return res.status(201).json({ blog: enrichBlogSocials(data) });
+        return res.status(201).json({ blog: enrichBlogRecord(data) });
     } catch (err) {
         console.error('Create blog error:', err);
         return res.status(500).json({ error: err?.message || 'Failed to create blog' });
@@ -320,6 +367,8 @@ router.put('/:id', upload.single('image'), async (req, res) => {
             content,
             title2,
             content2,
+            sub_sections,
+            pull_quote_position,
             slug,
             summary,
             standfirst,
@@ -362,8 +411,35 @@ router.put('/:id', upload.single('image'), async (req, res) => {
         if (published_date !== undefined) updateData.published_date = sanitizeDate(published_date);
         if (title !== undefined) updateData.title = title;
         if (content !== undefined) updateData.content = content;
-        if (title2 !== undefined) updateData.title2 = title2 || null;
-        if (content2 !== undefined) updateData.content2 = content2 || null;
+
+        // Parse sub_sections if supplied
+        let parsedSubSections = null;
+        if (sub_sections !== undefined) {
+            try {
+                parsedSubSections = typeof sub_sections === 'string' ? JSON.parse(sub_sections) : sub_sections;
+            } catch (_) {
+                parsedSubSections = [];
+            }
+            if (!Array.isArray(parsedSubSections)) parsedSubSections = [];
+            updateData.sub_sections = parsedSubSections;
+
+            // Sync with title2/content2
+            if (parsedSubSections.length > 0) {
+                updateData.title2 = parsedSubSections[0].heading ? String(parsedSubSections[0].heading).trim() : null;
+                updateData.content2 = parsedSubSections[0].body ? String(parsedSubSections[0].body) : null;
+            } else {
+                updateData.title2 = null;
+                updateData.content2 = null;
+            }
+        } else {
+            if (title2 !== undefined) updateData.title2 = title2 || null;
+            if (content2 !== undefined) updateData.content2 = content2 || null;
+        }
+
+        if (pull_quote_position !== undefined) {
+            updateData.pull_quote_position = Number(pull_quote_position);
+        }
+
         if (slug !== undefined) updateData.slug = slug ? generateSlug(slug) : generateSlug(title || existing.title);
         if (summary !== undefined) updateData.summary = summary || null;
         if (standfirst !== undefined) updateData.standfirst = standfirst || null;
@@ -422,8 +498,15 @@ router.put('/:id', upload.single('image'), async (req, res) => {
 
         if (blogId) {
             blogSocialsStore.setSocials(blogId, { linkedin_url, instagram_url, facebook_url });
+            if (parsedSubSections !== null || pull_quote_position !== undefined) {
+                const currentStore = blogSubsectionsStore.getSubsections(blogId);
+                blogSubsectionsStore.setSubsections(blogId, {
+                    sub_sections: parsedSubSections !== null ? parsedSubSections : currentStore.sub_sections,
+                    pull_quote_position: pull_quote_position !== undefined ? Number(pull_quote_position) : currentStore.pull_quote_position,
+                });
+            }
         }
-        return res.status(200).json({ blog: enrichBlogSocials(data) });
+        return res.status(200).json({ blog: enrichBlogRecord(data) });
     } catch (err) {
         console.error('Update blog error:', err);
         return res.status(500).json({ error: err?.message || 'Failed to update article' });

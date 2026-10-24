@@ -3,6 +3,7 @@ import { fetchBlogs, createBlog, updateBlog, deleteBlog, updateBlogStatus } from
 import BlogList from '../components/Blog/BlogList';
 import BlogForm from '../components/Blog/BlogForm';
 import toast from 'react-hot-toast';
+import { renderEditorialBody, renderHighlightBox, renderPullQuote, renderAuthorBox } from '../utils/editorialRenderer';
 
 export default function AdminBlogManagement() {
     const [blogs, setBlogs] = useState([]);
@@ -285,20 +286,62 @@ export default function AdminBlogManagement() {
                                 {previewBlog.image_url && (
                                     <img src={previewBlog.image_url} alt="" style={{ width: '100%', borderRadius: '10px', marginBottom: '24px' }} />
                                 )}
-                                <div style={{ whiteSpace: 'pre-wrap', fontSize: '18px', lineHeight: '1.7' }}>
-                                    {previewBlog.content}
-                                </div>
-                                {previewBlog.pull_quote && (
-                                    <blockquote style={{ margin: '30px 0', padding: '16px 0', borderTop: '1px solid #E3E6EC', borderBottom: '1px solid #E3E6EC', textAlign: 'center', fontFamily: "'Source Serif 4', Georgia, serif", fontSize: '24px', color: '#A3192F' }}>
-                                        "{previewBlog.pull_quote}"
-                                    </blockquote>
-                                )}
-                                {previewBlog.concluding_insight && (
-                                    <div style={{ background: '#F4F5F8', borderRadius: '10px', padding: '20px', marginTop: '24px' }}>
-                                        <p style={{ fontWeight: '700', fontSize: '13px', color: '#13294B', margin: '0 0 6px' }}>CONCLUDING INSIGHT</p>
-                                        <p style={{ margin: 0 }}>{previewBlog.concluding_insight}</p>
-                                    </div>
-                                )}
+                                {(() => {
+                                    const previewSubs = Array.isArray(previewBlog.sub_sections) && previewBlog.sub_sections.length > 0
+                                        ? previewBlog.sub_sections
+                                        : (previewBlog.title2 || previewBlog.content2
+                                            ? [{ id: 'sub-legacy-1', heading: previewBlog.title2, body: previewBlog.content2, highlight_type: 'none', highlight_text: '' }]
+                                            : []);
+                                    const previewPullQuotePos = previewBlog.pull_quote_position !== undefined && previewBlog.pull_quote_position !== null
+                                        ? Number(previewBlog.pull_quote_position)
+                                        : 1;
+
+                                    return (
+                                        <>
+                                            {/* 1. Full Article Body */}
+                                            <div style={{ fontSize: '18px', lineHeight: '1.7', color: '#1B1F2A', marginBottom: '24px' }}>
+                                                {renderEditorialBody(previewBlog.content)}
+                                            </div>
+
+                                            {/* Pull quote after full body if pos 0 */}
+                                            {previewPullQuotePos === 0 && previewBlog.pull_quote && renderPullQuote(previewBlog.pull_quote, previewBlog.pull_quote_author)}
+
+                                            {/* 2. Sub-sections in order */}
+                                            {previewSubs.map((sub, idx) => (
+                                                <div key={sub.id || idx}>
+                                                    {sub.heading && (
+                                                        <h2 style={{
+                                                            margin: '36px 0 16px',
+                                                            fontFamily: "'Source Serif 4', Georgia, serif",
+                                                            fontSize: '28px',
+                                                            lineHeight: 1.3,
+                                                            color: '#13294B',
+                                                            fontWeight: 700
+                                                        }}>
+                                                            {sub.heading}
+                                                        </h2>
+                                                    )}
+                                                    {renderEditorialBody(sub.body)}
+                                                    {renderHighlightBox(sub)}
+                                                    {previewPullQuotePos === (idx + 1) && previewBlog.pull_quote && renderPullQuote(previewBlog.pull_quote, previewBlog.pull_quote_author)}
+                                                </div>
+                                            ))}
+
+                                            {previewPullQuotePos > previewSubs.length && previewSubs.length > 0 && previewBlog.pull_quote && renderPullQuote(previewBlog.pull_quote, previewBlog.pull_quote_author)}
+
+                                            {/* 3. Concluding Insight */}
+                                            {previewBlog.concluding_insight && (
+                                                <div style={{ background: '#F4F5F8', borderRadius: '10px', padding: '20px', marginTop: '32px' }}>
+                                                    <p style={{ fontWeight: '700', fontSize: '13px', color: '#13294B', margin: '0 0 6px', letterSpacing: '2px' }}>CONCLUDING INSIGHT</p>
+                                                    <p style={{ margin: 0, fontSize: '16px', lineHeight: 1.6, color: '#1B1F2A' }}>{previewBlog.concluding_insight}</p>
+                                                </div>
+                                            )}
+
+                                            {/* 4. Author Box */}
+                                            {renderAuthorBox(previewBlog)}
+                                        </>
+                                    );
+                                })()}
                             </div>
                         </div>
                     </div>

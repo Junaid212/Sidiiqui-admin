@@ -73,6 +73,8 @@ export async function createBlog(blogData) {
         if (blogData.published_date) fd.append('published_date', blogData.published_date);
         if (blogData.title2) fd.append('title2', blogData.title2);
         if (blogData.content2) fd.append('content2', blogData.content2);
+        if (blogData.sub_sections) fd.append('sub_sections', JSON.stringify(blogData.sub_sections));
+        if (blogData.pull_quote_position !== undefined) fd.append('pull_quote_position', String(blogData.pull_quote_position));
 
         // Editorial fields
         if (blogData.slug) fd.append('slug', blogData.slug);
@@ -112,6 +114,8 @@ export async function createBlog(blogData) {
             published_date: blogData.published_date || new Date().toISOString().split('T')[0],
             title2: blogData.title2,
             content2: blogData.content2,
+            sub_sections: blogData.sub_sections || [],
+            pull_quote_position: blogData.pull_quote_position !== undefined ? Number(blogData.pull_quote_position) : 1,
             image_url: blogData.image_url,
             image_path: blogData.image_path,
             slug: blogData.slug,
@@ -156,6 +160,8 @@ export async function updateBlog(id, blogData) {
         if (blogData.published_date) fd.append('published_date', blogData.published_date);
         if (blogData.title2) fd.append('title2', blogData.title2);
         if (blogData.content2) fd.append('content2', blogData.content2);
+        if (blogData.sub_sections !== undefined) fd.append('sub_sections', JSON.stringify(blogData.sub_sections));
+        if (blogData.pull_quote_position !== undefined) fd.append('pull_quote_position', String(blogData.pull_quote_position));
 
         // Editorial fields
         if (blogData.slug) fd.append('slug', blogData.slug);
@@ -195,6 +201,8 @@ export async function updateBlog(id, blogData) {
             published_date: blogData.published_date,
             title2: blogData.title2,
             content2: blogData.content2,
+            sub_sections: blogData.sub_sections !== undefined ? blogData.sub_sections : [],
+            pull_quote_position: blogData.pull_quote_position !== undefined ? Number(blogData.pull_quote_position) : 1,
             image_url: blogData.image_url,
             image_path: blogData.image_path,
             slug: blogData.slug,

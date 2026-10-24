@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { renderEditorialBody, renderHighlightBox, renderPullQuote, renderAuthorBox } from '../../utils/editorialRenderer';
 
 const REFERENCE_CATEGORIES = [
     'SID Philosophy',
@@ -28,12 +29,14 @@ export default function BlogForm({ blog, allBlogs = [], onSubmit, onCancel }) {
     const [standfirst, setStandfirst] = useState('');
     const [summary, setSummary] = useState('');
     const [content, setContent] = useState('');
-    const [title2, setTitle2] = useState('');
-    const [content2, setContent2] = useState('');
+
+    // Repeatable sub-sections (up to 8 per article)
+    const [subSections, setSubSections] = useState([]);
 
     // Editorial callouts
     const [pull_quote, setPullQuote] = useState('');
     const [pull_quote_author, setPullQuoteAuthor] = useState('');
+    const [pullQuotePosition, setPullQuotePosition] = useState(1);
     const [concluding_insight, setConcludingInsight] = useState('');
 
     // Media
@@ -87,8 +90,67 @@ export default function BlogForm({ blog, allBlogs = [], onSubmit, onCancel }) {
             .replace(/-+/g, '-');
     }
 
-    function updateAutoReadingTime(bodyText, headline) {
-        const words = `${headline || ''} ${standfirst || ''} ${bodyText || ''}`.trim().split(/\s+/).filter(Boolean).length;
+    const MAX_SUB_SECTIONS = 8;
+
+    function handleAddSubSection() {
+        if (subSections.length >= MAX_SUB_SECTIONS) return;
+        setSubSections(prev => [
+            ...prev,
+            {
+                id: `sub-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+                heading: '',
+                body: '',
+                highlight_type: 'none',
+                highlight_text: ''
+            }
+        ]);
+    }
+
+    function handleRemoveSubSection(index) {
+        setSubSections(prev => {
+            const next = prev.filter((_, i) => i !== index);
+            if (pullQuotePosition > next.length && next.length > 0) {
+                setPullQuotePosition(next.length);
+            }
+            return next;
+        });
+    }
+
+    function handleMoveSubSection(index, direction) {
+        const target = index + direction;
+        if (target < 0 || target >= subSections.length) return;
+        setSubSections(prev => {
+            const copy = [...prev];
+            const [item] = copy.splice(index, 1);
+            copy.splice(target, 0, item);
+            return copy;
+        });
+    }
+
+    function handleUpdateSubSection(index, field, value) {
+        setSubSections(prev => {
+            const copy = [...prev];
+            copy[index] = { ...copy[index], [field]: value };
+            return copy;
+        });
+    }
+
+    function insertBulletIntoSubSection(index) {
+        setSubSections(prev => {
+            const copy = [...prev];
+            const currentBody = copy[index]?.body || '';
+            const needsNewline = currentBody && !currentBody.endsWith('\n');
+            copy[index] = {
+                ...copy[index],
+                body: `${currentBody}${needsNewline ? '\n' : ''}• `
+            };
+            return copy;
+        });
+    }
+
+    function updateAutoReadingTime(bodyText, headline, subs = subSections) {
+        const subsText = Array.isArray(subs) ? subs.map(s => `${s.heading || ''} ${s.body || ''}`).join(' ') : '';
+        const words = `${headline || ''} ${standfirst || ''} ${bodyText || ''} ${subsText}`.trim().split(/\s+/).filter(Boolean).length;
         const minutes = Math.max(1, Math.ceil(words / 200));
         setReadingTime(`${minutes} min read`);
     }
@@ -116,8 +178,33 @@ export default function BlogForm({ blog, allBlogs = [], onSubmit, onCancel }) {
             setStandfirst(blog.standfirst || '');
             setSummary(blog.summary || '');
             setContent(blog.content || '');
-            setTitle2(blog.title2 || '');
-            setContent2(blog.content2 || '');
+
+            // Populate repeatable sub-sections with automatic legacy migration
+            let initialSubs = [];
+            if (Array.isArray(blog.sub_sections) && blog.sub_sections.length > 0) {
+                initialSubs = blog.sub_sections;
+            } else if (typeof blog.sub_sections === 'string') {
+                try {
+                    const parsed = JSON.parse(blog.sub_sections);
+                    if (Array.isArray(parsed) && parsed.length > 0) initialSubs = parsed;
+                } catch (_) {}
+            }
+
+            // Move legacy Additional Sub-Section (title2 / content2) into Sub-section 1
+            if (initialSubs.length === 0 && (blog.title2 || blog.content2)) {
+                initialSubs = [
+                    {
+                        id: 'sub-legacy-1',
+                        heading: blog.title2 || '',
+                        body: blog.content2 || '',
+                        highlight_type: 'none',
+                        highlight_text: ''
+                    }
+                ];
+            }
+
+            setSubSections(initialSubs);
+            setPullQuotePosition(blog.pull_quote_position !== undefined && blog.pull_quote_position !== null ? Number(blog.pull_quote_position) : 1);
 
             setPullQuote(blog.pull_quote || '');
             setPullQuoteAuthor(blog.pull_quote_author || '');
@@ -156,6 +243,8 @@ export default function BlogForm({ blog, allBlogs = [], onSubmit, onCancel }) {
         } else {
             setPublishedDate(new Date().toISOString().split('T')[0]);
             setReadingTime('3 min read');
+            setSubSections([]);
+            setPullQuotePosition(1);
             setLinkedinUrl('');
             setInstagramUrl('');
             setFacebookUrl('');
@@ -243,8 +332,10 @@ export default function BlogForm({ blog, allBlogs = [], onSubmit, onCancel }) {
                 standfirst: standfirst.trim(),
                 summary: summary.trim(),
                 content,
-                title2: title2.trim(),
-                content2,
+                sub_sections: subSections,
+                pull_quote_position: pullQuotePosition,
+                title2: subSections[0]?.heading ? subSections[0].heading.trim() : '',
+                content2: subSections[0]?.body || '',
 
                 pull_quote: pull_quote.trim(),
                 pull_quote_author: pull_quote_author.trim(),
@@ -370,36 +461,41 @@ export default function BlogForm({ blog, allBlogs = [], onSubmit, onCancel }) {
                             )}
 
                             <div style={{ maxWidth: '720px', margin: '24px auto', fontSize: '18px', lineHeight: '1.7', color: '#1B1F2A' }}>
-                                <div style={{ whiteSpace: 'pre-wrap', marginBottom: '20px' }}>
-                                    {content || '[Article body paragraphs will appear here...]'}
+                                {/* 1. Full Article Body */}
+                                <div style={{ marginBottom: '24px' }}>
+                                    {renderEditorialBody(content || '[Article body paragraphs will appear here...]')}
                                 </div>
 
-                                {pull_quote && (
-                                    <figure style={{ margin: '32px 0', padding: '16px 0', textAlign: 'center', borderTop: '1px solid #E3E6EC', borderBottom: '1px solid #E3E6EC' }}>
-                                        <blockquote style={{ margin: 0, fontFamily: "'Source Serif 4', Georgia, serif", fontWeight: '600', fontSize: '26px', lineHeight: '1.4', color: '#A3192F' }}>
-                                            "{pull_quote}"
-                                        </blockquote>
-                                        {pull_quote_author && (
-                                            <figcaption style={{ marginTop: '8px', fontSize: '14px', color: '#4A5163' }}>
-                                                — {pull_quote_author}
-                                            </figcaption>
+                                {/* Pull quote if placed after Full Article Body (position 0) */}
+                                {pullQuotePosition === 0 && pull_quote && renderPullQuote(pull_quote, pull_quote_author)}
+
+                                {/* 2. Sub-sections in order set */}
+                                {subSections.map((sub, idx) => (
+                                    <div key={sub.id || idx}>
+                                        {sub.heading && (
+                                            <h2 style={{
+                                                margin: '38px 0 16px',
+                                                fontFamily: "'Source Serif 4', Georgia, serif",
+                                                fontSize: '28px',
+                                                lineHeight: 1.3,
+                                                color: '#13294B',
+                                                fontWeight: 700
+                                            }}>
+                                                {sub.heading}
+                                            </h2>
                                         )}
-                                    </figure>
-                                )}
-
-                                {title2 && (
-                                    <h2 style={{ margin: '28px 0 12px', fontFamily: "'Source Serif 4', Georgia, serif", fontSize: '28px', color: '#13294B' }}>
-                                        {title2}
-                                    </h2>
-                                )}
-                                {content2 && (
-                                    <div style={{ whiteSpace: 'pre-wrap', marginBottom: '20px' }}>
-                                        {content2}
+                                        {renderEditorialBody(sub.body)}
+                                        {renderHighlightBox(sub)}
+                                        {pullQuotePosition === (idx + 1) && pull_quote && renderPullQuote(pull_quote, pull_quote_author)}
                                     </div>
-                                )}
+                                ))}
 
+                                {/* Fallback pull quote if placed beyond subSections length */}
+                                {pullQuotePosition > subSections.length && subSections.length > 0 && pull_quote && renderPullQuote(pull_quote, pull_quote_author)}
+
+                                {/* 3. Concluding Insight */}
                                 {concluding_insight && (
-                                    <div style={{ background: '#F4F5F8', borderRadius: '12px', padding: '24px 28px', marginTop: '32px' }}>
+                                    <div style={{ background: '#F4F5F8', borderRadius: '12px', padding: '24px 28px', marginTop: '36px' }}>
                                         <p style={{ margin: '0 0 8px', fontSize: '13px', letterSpacing: '3px', fontWeight: '700', color: '#13294B' }}>
                                             CONCLUDING INSIGHT
                                         </p>
@@ -408,6 +504,9 @@ export default function BlogForm({ blog, allBlogs = [], onSubmit, onCancel }) {
                                         </p>
                                     </div>
                                 )}
+
+                                {/* 4. Author Box */}
+                                {renderAuthorBox({ author_byline, linkedin_url, instagram_url, facebook_url })}
 
                                 {related_to_book && (
                                     <div style={{ background: '#13294B', color: '#ffffff', borderRadius: '14px', padding: '24px', marginTop: '36px', display: 'flex', gap: '20px', alignItems: 'center' }}>
@@ -602,8 +701,198 @@ export default function BlogForm({ blog, allBlogs = [], onSubmit, onCancel }) {
                                     />
                                 </div>
 
-                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '16px', marginBottom: '16px' }}>
-                                    <div className="form-group">
+                                {/* REPEATABLE SUB-SECTIONS (Up to 8) */}
+                                <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '18px', marginBottom: '22px' }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', marginBottom: '14px' }}>
+                                        <div>
+                                            <label style={{ fontSize: '0.95rem', fontWeight: '700', display: 'block', margin: 0 }}>
+                                                Sub-Sections ({subSections.length}/{MAX_SUB_SECTIONS})
+                                            </label>
+                                            <small style={{ color: 'var(--text-muted)', display: 'block', marginTop: '2px' }}>
+                                                Add repeatable editorial sections with subheadings, body paragraphs, and highlight boxes.
+                                            </small>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={handleAddSubSection}
+                                            disabled={subSections.length >= MAX_SUB_SECTIONS}
+                                            className="btn btn--outline btn--sm"
+                                            style={{
+                                                borderColor: subSections.length >= MAX_SUB_SECTIONS ? 'var(--border-color)' : 'var(--accent-primary)',
+                                                color: subSections.length >= MAX_SUB_SECTIONS ? 'var(--text-muted)' : 'var(--accent-primary)',
+                                                fontWeight: '600',
+                                                display: 'inline-flex',
+                                                alignItems: 'center',
+                                                gap: '6px'
+                                            }}
+                                        >
+                                            <span>+ Add sub-section</span>
+                                            {subSections.length >= MAX_SUB_SECTIONS && <small>(Max 8)</small>}
+                                        </button>
+                                    </div>
+
+                                    {subSections.length === 0 ? (
+                                        <div style={{
+                                            border: '1px dashed var(--border-color)',
+                                            borderRadius: '8px',
+                                            padding: '24px',
+                                            textAlign: 'center',
+                                            color: 'var(--text-muted)',
+                                            background: 'rgba(255, 255, 255, 0.01)'
+                                        }}>
+                                            <p style={{ margin: '0 0 10px', fontSize: '0.9rem' }}>No sub-sections added yet.</p>
+                                            <button
+                                                type="button"
+                                                onClick={handleAddSubSection}
+                                                className="btn btn--outline btn--sm"
+                                            >
+                                                + Add sub-section 1
+                                            </button>
+                                        </div>
+                                    ) : (
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                                            {subSections.map((sub, index) => (
+                                                <div
+                                                    key={sub.id || index}
+                                                    style={{
+                                                        background: 'var(--bg-card-secondary, rgba(255, 255, 255, 0.03))',
+                                                        border: '1px solid var(--border-color)',
+                                                        borderRadius: '8px',
+                                                        padding: '16px',
+                                                        position: 'relative'
+                                                    }}
+                                                >
+                                                    {/* Card Header with controls */}
+                                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', flexWrap: 'wrap', gap: '8px', borderBottom: '1px solid rgba(255,255,255,0.06)', paddingBottom: '10px' }}>
+                                                        <span style={{ fontWeight: '700', fontSize: '0.9rem', color: 'var(--accent-primary)', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                                                            <span>📑 Sub-Section {index + 1}</span>
+                                                            {sub.heading && (
+                                                                <span style={{ fontWeight: 'normal', color: 'var(--text-muted)', fontSize: '0.82rem', maxWidth: '280px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                                    — {sub.heading}
+                                                                </span>
+                                                            )}
+                                                        </span>
+                                                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => handleMoveSubSection(index, -1)}
+                                                                disabled={index === 0}
+                                                                className="btn btn--outline btn--sm"
+                                                                style={{ padding: '3px 8px', fontSize: '0.78rem', opacity: index === 0 ? 0.4 : 1 }}
+                                                                title="Move this sub-section up"
+                                                            >
+                                                                ▲ Move up
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => handleMoveSubSection(index, 1)}
+                                                                disabled={index === subSections.length - 1}
+                                                                className="btn btn--outline btn--sm"
+                                                                style={{ padding: '3px 8px', fontSize: '0.78rem', opacity: index === subSections.length - 1 ? 0.4 : 1 }}
+                                                                title="Move this sub-section down"
+                                                            >
+                                                                ▼ Move down
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => handleRemoveSubSection(index)}
+                                                                className="btn btn--outline btn--sm"
+                                                                style={{ padding: '3px 8px', fontSize: '0.78rem', color: '#ef4444', borderColor: 'rgba(239, 68, 68, 0.4)' }}
+                                                                title="Remove sub-section"
+                                                            >
+                                                                ✕ Remove
+                                                            </button>
+                                                        </div>
+                                                    </div>
+
+                                                    {/* Heading (one line) */}
+                                                    <div className="form-group" style={{ marginBottom: '12px' }}>
+                                                        <label style={{ fontSize: '0.82rem' }}>Subheading (H2, one line)</label>
+                                                        <input
+                                                            type="text"
+                                                            value={sub.heading || ''}
+                                                            onChange={(e) => handleUpdateSubSection(index, 'heading', e.target.value)}
+                                                            placeholder={`e.g. Subheading for Section ${index + 1}`}
+                                                        />
+                                                    </div>
+
+                                                    {/* Body (multi-line, blank lines, bullets) */}
+                                                    <div className="form-group" style={{ marginBottom: '14px' }}>
+                                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                                                            <label style={{ fontSize: '0.82rem', margin: 0 }}>
+                                                                Body Content (keeps blank lines between paragraphs, • starts bullets)
+                                                            </label>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => insertBulletIntoSubSection(index)}
+                                                                style={{
+                                                                    background: 'transparent',
+                                                                    border: 'none',
+                                                                    color: 'var(--accent-primary)',
+                                                                    fontSize: '0.78rem',
+                                                                    fontWeight: '600',
+                                                                    cursor: 'pointer',
+                                                                    padding: 0
+                                                                }}
+                                                                title="Insert a bullet point symbol at cursor"
+                                                            >
+                                                                + Insert Bullet (•)
+                                                            </button>
+                                                        </div>
+                                                        <textarea
+                                                            rows={5}
+                                                            value={sub.body || ''}
+                                                            onChange={(e) => {
+                                                                handleUpdateSubSection(index, 'body', e.target.value);
+                                                                updateAutoReadingTime(content, title);
+                                                            }}
+                                                            placeholder="Write sub-section body. Blank lines create paragraph breaks. Lines starting with • will render as styled bullet lists..."
+                                                            style={{ fontFamily: 'inherit', fontSize: '0.9rem', lineHeight: '1.6' }}
+                                                        />
+                                                    </div>
+
+                                                    {/* Highlight (optional): None, Quote box or Question box, plus one line of text */}
+                                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px', background: 'rgba(0,0,0,0.15)', padding: '12px', borderRadius: '6px', border: '1px solid var(--border-color)' }}>
+                                                        <div className="form-group" style={{ margin: 0 }}>
+                                                            <label style={{ fontSize: '0.8rem' }}>Highlight Box (optional)</label>
+                                                            <select
+                                                                value={sub.highlight_type || 'none'}
+                                                                onChange={(e) => handleUpdateSubSection(index, 'highlight_type', e.target.value)}
+                                                                style={{ width: '100%', padding: '8px 10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-color)', background: 'var(--bg-input)', fontSize: '0.85rem' }}
+                                                            >
+                                                                <option value="none">None</option>
+                                                                <option value="quote">Quote box (light maroon)</option>
+                                                                <option value="question">Question box (light gray)</option>
+                                                            </select>
+                                                        </div>
+
+                                                        <div className="form-group" style={{ margin: 0 }}>
+                                                            <label style={{ fontSize: '0.8rem' }}>Highlight Text (one line)</label>
+                                                            <input
+                                                                type="text"
+                                                                value={sub.highlight_text || ''}
+                                                                onChange={(e) => handleUpdateSubSection(index, 'highlight_text', e.target.value)}
+                                                                disabled={!sub.highlight_type || sub.highlight_type === 'none'}
+                                                                placeholder={
+                                                                    sub.highlight_type === 'quote'
+                                                                        ? "Enter quote text to highlight..."
+                                                                        : sub.highlight_type === 'question'
+                                                                        ? "Enter question to highlight..."
+                                                                        : "Select Quote box or Question box to add text"
+                                                                }
+                                                                style={{ fontSize: '0.85rem' }}
+                                                            />
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* PULL QUOTE WITH PLACEMENT DROPDOWN */}
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '16px', marginBottom: '16px', borderTop: '1px solid var(--border-color)', paddingTop: '16px' }}>
+                                    <div className="form-group" style={{ gridColumn: 'span 2' }}>
                                         <label htmlFor="blog-pull-quote">Optional Pull Quote</label>
                                         <textarea
                                             id="blog-pull-quote"
@@ -623,6 +912,25 @@ export default function BlogForm({ blog, allBlogs = [], onSubmit, onCancel }) {
                                             placeholder="e.g. M. Q. Siddiqui, Marketing Reclassified"
                                         />
                                     </div>
+                                    <div className="form-group">
+                                        <label htmlFor="blog-pull-quote-pos">Pull Quote Placement</label>
+                                        <select
+                                            id="blog-pull-quote-pos"
+                                            value={pullQuotePosition}
+                                            onChange={(e) => setPullQuotePosition(Number(e.target.value))}
+                                            style={{ width: '100%', padding: '10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-color)', background: 'var(--bg-input)' }}
+                                        >
+                                            <option value={0}>After Full Article Body</option>
+                                            {subSections.map((s, idx) => (
+                                                <option key={idx} value={idx + 1}>
+                                                    After Sub-section {idx + 1}{idx === 0 ? ' (Default)' : ''}{s.heading ? `: ${s.heading.length > 25 ? s.heading.substring(0, 25) + '…' : s.heading}` : ''}
+                                                </option>
+                                            ))}
+                                        </select>
+                                        <small style={{ color: 'var(--text-muted)', display: 'block', marginTop: '4px' }}>
+                                            Choose which sub-section this pull quote appears directly after (default: after sub-section 1).
+                                        </small>
+                                    </div>
                                 </div>
 
                                 <div className="form-group" style={{ marginBottom: '16px' }}>
@@ -634,29 +942,6 @@ export default function BlogForm({ blog, allBlogs = [], onSubmit, onCancel }) {
                                         onChange={(e) => setConcludingInsight(e.target.value)}
                                         placeholder="Highlight panel summarizing the concluding perspective..."
                                     />
-                                </div>
-
-                                {/* Backward compatibility: Subheading 2 & Content 2 */}
-                                <div style={{ borderTop: '1px dashed var(--border-color)', paddingTop: '14px' }}>
-                                    <small style={{ color: 'var(--text-muted)', display: 'block', marginBottom: '8px' }}>
-                                        Optional Additional Sub-Section (Legacy compatibility)
-                                    </small>
-                                    <div className="form-group" style={{ marginBottom: '10px' }}>
-                                        <input
-                                            type="text"
-                                            value={title2}
-                                            onChange={(e) => setTitle2(e.target.value)}
-                                            placeholder="Second Subheading (optional)"
-                                        />
-                                    </div>
-                                    <div className="form-group">
-                                        <textarea
-                                            rows={4}
-                                            value={content2}
-                                            onChange={(e) => setContent2(e.target.value)}
-                                            placeholder="Content under second subheading (optional)..."
-                                        />
-                                    </div>
                                 </div>
                             </div>
 
