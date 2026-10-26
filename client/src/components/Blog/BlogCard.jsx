@@ -155,7 +155,7 @@ export default function BlogCard({ blog, onEdit, onDelete, onStatusChange, onPre
                         .filter(Boolean)
                         .slice(0, 2)
                         .map((t, idx) => (
-                            <span key={idx} style={{ background: 'rgba(19, 41, 75, 0.08)', color: '#13294B', padding: '2px 8px', borderRadius: '4px' }}>
+                            <span key={idx} style={{ background: 'rgba(220, 220, 220, 0.52)', color: '#131356ff', padding: '2px 8px', borderRadius: '4px' }}>
                                 {t.toUpperCase()}
                             </span>
                         ))}

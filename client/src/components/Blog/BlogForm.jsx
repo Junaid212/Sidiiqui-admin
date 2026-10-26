@@ -370,6 +370,17 @@ export default function BlogForm({ blog, allBlogs = [], onSubmit, onCancel }) {
             setSubmitting(false);
         }
     }
+    const inputStyle = {
+    // width: '100%',
+    padding: '8px 10px',
+    background: '#141420',
+    border: '1px solid rgba(255,255,255,0.1)',
+    borderRadius: 6,
+    color: '#f3f4f6',
+    fontSize: '0.85rem',
+    outline: 'none',
+    boxSizing: 'border-box'
+};
 
     // Filterable other blogs for related articles
     const otherBlogs = (allBlogs || []).filter(b => !blog || String(b.id) !== String(blog.id));
@@ -542,7 +553,7 @@ export default function BlogForm({ blog, allBlogs = [], onSubmit, onCancel }) {
                                         onChange={(e) => handleTitleChange(e.target.value)}
                                         placeholder="e.g. Why Strategic Marketing Must Challenge Assumptions"
                                         required
-                                        style={{ fontSize: '1rem', fontWeight: '600' }}
+                                        style={inputStyle}
                                     />
                                 </div>
 
@@ -556,6 +567,7 @@ export default function BlogForm({ blog, allBlogs = [], onSubmit, onCancel }) {
                                                 value={slug}
                                                 onChange={(e) => setSlug(deriveSlug(e.target.value))}
                                                 placeholder="e.g. why-strategic-marketing-must-challenge-assumptions"
+                                                style={inputStyle}
                                             />
                                             <button
                                                 type="button"
@@ -570,12 +582,12 @@ export default function BlogForm({ blog, allBlogs = [], onSubmit, onCancel }) {
                                     </div>
 
                                     <div className="form-group">
-                                        <label htmlFor="blog-topic">Primary Category *</label>
+                                        <label htmlFor="blog-topic " >Primary Category *</label>
                                         <select
                                             id="blog-topic"
                                             value={topic}
                                             onChange={(e) => setTopic(e.target.value)}
-                                            style={{ width: '100%', padding: '10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-color)', background: 'var(--bg-input)' }}
+                                            style={{ width: '100%', padding: '10px',color:"red", borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-color)', background: 'var(--bg-input)' }}
                                         >
                                             {REFERENCE_CATEGORIES.map(cat => (
                                                 <option key={cat} value={cat}>{cat}</option>
@@ -601,6 +613,7 @@ export default function BlogForm({ blog, allBlogs = [], onSubmit, onCancel }) {
                                             value={catSearch}
                                             onChange={e => setCatSearch(e.target.value)}
                                             placeholder="Type and select from suggestions below..."
+                                            style={inputStyle}
                                         />
                                         {catSearch.trim() && (
                                             <button type="button" className="btn btn--outline btn--sm" onClick={() => toggleCategory(catSearch)}>
@@ -631,6 +644,7 @@ export default function BlogForm({ blog, allBlogs = [], onSubmit, onCancel }) {
                                             value={author_byline}
                                             onChange={(e) => setAuthorByline(e.target.value)}
                                             placeholder="By M. Q. Siddiqui, Founder, Siddiqui.digital"
+                                            style={inputStyle}
                                         />
                                     </div>
 
@@ -643,6 +657,7 @@ export default function BlogForm({ blog, allBlogs = [], onSubmit, onCancel }) {
                                                 value={reading_time}
                                                 onChange={(e) => setReadingTime(e.target.value)}
                                                 placeholder="e.g. 5 min read"
+                                                style={inputStyle}
                                             />
                                             <button
                                                 type="button"
@@ -664,6 +679,7 @@ export default function BlogForm({ blog, allBlogs = [], onSubmit, onCancel }) {
                                         value={standfirst}
                                         onChange={(e) => setStandfirst(e.target.value)}
                                         placeholder="One or two sentences displayed prominently below headline..."
+                                        style={inputStyle}
                                     />
                                 </div>
 
@@ -675,6 +691,7 @@ export default function BlogForm({ blog, allBlogs = [], onSubmit, onCancel }) {
                                         value={summary}
                                         onChange={(e) => setSummary(e.target.value)}
                                         placeholder="Concise summary displayed on the blog archive grid and search results..."
+                                        style={inputStyle}
                                     />
                                 </div>
                             </div>
@@ -697,7 +714,7 @@ export default function BlogForm({ blog, allBlogs = [], onSubmit, onCancel }) {
                                         }}
                                         placeholder="Write the full article text. Paragraphs and subheadings can be added here..."
                                         required
-                                        style={{ fontFamily: 'inherit', fontSize: '0.95rem', lineHeight: '1.6' }}
+                                        style={{ fontSize: '0.95rem', lineHeight: '1.6', color: 'var(--text-primary)', backgroundColor: '#141420', padding:'10px' }}
                                     />
                                 </div>
 
@@ -813,6 +830,7 @@ export default function BlogForm({ blog, allBlogs = [], onSubmit, onCancel }) {
                                                             value={sub.heading || ''}
                                                             onChange={(e) => handleUpdateSubSection(index, 'heading', e.target.value)}
                                                             placeholder={`e.g. Subheading for Section ${index + 1}`}
+                                                            style={inputStyle}
                                                         />
                                                     </div>
 
@@ -847,7 +865,7 @@ export default function BlogForm({ blog, allBlogs = [], onSubmit, onCancel }) {
                                                                 updateAutoReadingTime(content, title);
                                                             }}
                                                             placeholder="Write sub-section body. Blank lines create paragraph breaks. Lines starting with • will render as styled bullet lists..."
-                                                            style={{ fontFamily: 'inherit', fontSize: '0.9rem', lineHeight: '1.6' }}
+                                                            style={{ fontFamily: 'inherit', fontSize: '0.9rem', lineHeight: '1.6', backgroundColor: '#141420', color: 'white', padding: '10px' }}
                                                         />
                                                     </div>
 
@@ -858,7 +876,7 @@ export default function BlogForm({ blog, allBlogs = [], onSubmit, onCancel }) {
                                                             <select
                                                                 value={sub.highlight_type || 'none'}
                                                                 onChange={(e) => handleUpdateSubSection(index, 'highlight_type', e.target.value)}
-                                                                style={{ width: '100%', padding: '8px 10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-color)', background: 'var(--bg-input)', fontSize: '0.85rem' }}
+                                                                style={{ width: '100%', padding: '8px 10px', color: "red", borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-color)', background: 'var(--bg-input)', fontSize: '0.85rem' }}
                                                             >
                                                                 <option value="none">None</option>
                                                                 <option value="quote">Quote box (light maroon)</option>
@@ -880,7 +898,7 @@ export default function BlogForm({ blog, allBlogs = [], onSubmit, onCancel }) {
                                                                         ? "Enter question to highlight..."
                                                                         : "Select Quote box or Question box to add text"
                                                                 }
-                                                                style={{ fontSize: '0.85rem' }}
+                                                                style={inputStyle}
                                                             />
                                                         </div>
                                                     </div>
@@ -900,6 +918,7 @@ export default function BlogForm({ blog, allBlogs = [], onSubmit, onCancel }) {
                                             value={pull_quote}
                                             onChange={(e) => setPullQuote(e.target.value)}
                                             placeholder="Prominent quote highlighted in editorial serif font..."
+                                            style={inputStyle}
                                         />
                                     </div>
                                     <div className="form-group">
@@ -910,6 +929,7 @@ export default function BlogForm({ blog, allBlogs = [], onSubmit, onCancel }) {
                                             value={pull_quote_author}
                                             onChange={(e) => setPullQuoteAuthor(e.target.value)}
                                             placeholder="e.g. M. Q. Siddiqui, Marketing Reclassified"
+                                            style={inputStyle}
                                         />
                                     </div>
                                     <div className="form-group">
@@ -918,7 +938,7 @@ export default function BlogForm({ blog, allBlogs = [], onSubmit, onCancel }) {
                                             id="blog-pull-quote-pos"
                                             value={pullQuotePosition}
                                             onChange={(e) => setPullQuotePosition(Number(e.target.value))}
-                                            style={{ width: '100%', padding: '10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-color)', background: 'var(--bg-input)' }}
+                                            style={{ width: '100%', padding: '10px', color: "#919191ff", borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-color)', background: 'var(--bg-input)' }}
                                         >
                                             <option value={0}>After Full Article Body</option>
                                             {subSections.map((s, idx) => (
@@ -941,6 +961,7 @@ export default function BlogForm({ blog, allBlogs = [], onSubmit, onCancel }) {
                                         value={concluding_insight}
                                         onChange={(e) => setConcludingInsight(e.target.value)}
                                         placeholder="Highlight panel summarizing the concluding perspective..."
+                                        style={inputStyle}
                                     />
                                 </div>
                             </div>
@@ -983,6 +1004,7 @@ export default function BlogForm({ blog, allBlogs = [], onSubmit, onCancel }) {
                                             value={image_alt}
                                             onChange={(e) => setImageAlt(e.target.value)}
                                             placeholder="Descriptive text for screen readers..."
+                                            style={inputStyle}
                                         />
                                     </div>
                                     <div className="form-group">
@@ -993,6 +1015,7 @@ export default function BlogForm({ blog, allBlogs = [], onSubmit, onCancel }) {
                                             value={image_caption}
                                             onChange={(e) => setImageCaption(e.target.value)}
                                             placeholder="Optional caption..."
+                                            style={inputStyle}
                                         />
                                     </div>
                                 </div>
@@ -1005,7 +1028,7 @@ export default function BlogForm({ blog, allBlogs = [], onSubmit, onCancel }) {
                                 </h3>
 
                                 <div style={{ marginBottom: '20px', padding: '14px', background: 'rgba(19, 41, 75, 0.08)', borderRadius: '8px', border: '1px solid rgba(19, 41, 75, 0.2)' }}>
-                                    <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', fontWeight: '700', color: '#13294B' }}>
+                                    <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', fontWeight: '700', color: '#ffffffff' }}>
                                         <input
                                             type="checkbox"
                                             checked={related_to_book}
@@ -1027,6 +1050,7 @@ export default function BlogForm({ blog, allBlogs = [], onSubmit, onCancel }) {
                                                 value={book_concept}
                                                 onChange={(e) => setBookConcept(e.target.value)}
                                                 placeholder="Explain how this article relates to the frameworks in Marketing Reclassified..."
+                                                style={inputStyle}
                                             />
                                         </div>
                                     )}
@@ -1072,7 +1096,7 @@ export default function BlogForm({ blog, allBlogs = [], onSubmit, onCancel }) {
                                             id="blog-status"
                                             value={status}
                                             onChange={(e) => setStatus(e.target.value)}
-                                            style={{ width: '100%', padding: '10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-color)', background: 'var(--bg-input)' }}
+                                            style={{ width: '100%', padding: '10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-color)', background: 'var(--bg-input)', color: '#9f9f9fff' }}
                                         >
                                             <option value="published">Published (Visible immediately)</option>
                                             <option value="draft">Draft (Private, not public)</option>
@@ -1101,6 +1125,7 @@ export default function BlogForm({ blog, allBlogs = [], onSubmit, onCancel }) {
                                             type="date"
                                             value={published_date}
                                             onChange={(e) => setPublishedDate(e.target.value)}
+                                            style={inputStyle}
                                         />
                                     </div>
                                 </div>
@@ -1135,6 +1160,7 @@ export default function BlogForm({ blog, allBlogs = [], onSubmit, onCancel }) {
                                         value={seo_title}
                                         onChange={(e) => setSeoTitle(e.target.value)}
                                         placeholder={title || 'e.g. Why Strategic Marketing Must Challenge Assumptions | Siddiqui.digital'}
+                                        style={inputStyle}
                                     />
                                 </div>
 
@@ -1146,6 +1172,7 @@ export default function BlogForm({ blog, allBlogs = [], onSubmit, onCancel }) {
                                         value={seo_description}
                                         onChange={(e) => setSeoDescription(e.target.value)}
                                         placeholder={summary || 'A compelling summary for search results...'}
+                                        style={inputStyle}
                                     />
                                     <small style={{ color: 'var(--text-muted)' }}>{seo_description.length} characters</small>
                                 </div>
@@ -1171,6 +1198,7 @@ export default function BlogForm({ blog, allBlogs = [], onSubmit, onCancel }) {
                                             value={linkedin_url}
                                             onChange={(e) => setLinkedinUrl(e.target.value)}
                                             placeholder="https://linkedin.com/in/username or post URL (leave blank to omit)"
+                                            style={inputStyle}
                                         />
                                     </div>
 
@@ -1184,6 +1212,7 @@ export default function BlogForm({ blog, allBlogs = [], onSubmit, onCancel }) {
                                             value={instagram_url}
                                             onChange={(e) => setInstagramUrl(e.target.value)}
                                             placeholder="https://instagram.com/username or post URL (leave blank to omit)"
+                                            style={inputStyle}
                                         />
                                     </div>
 
@@ -1197,6 +1226,7 @@ export default function BlogForm({ blog, allBlogs = [], onSubmit, onCancel }) {
                                             value={facebook_url}
                                             onChange={(e) => setFacebookUrl(e.target.value)}
                                             placeholder="https://facebook.com/username or post URL (leave blank to omit)"
+                                            style={inputStyle}
                                         />
                                     </div>
                                 </div>

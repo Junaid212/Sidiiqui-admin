@@ -198,7 +198,7 @@ export default function AdminBlogManagement() {
                 </div>
 
                 {/* Status Tabs */}
-                <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', color: 'white' }}>
                     {[
                         { id: 'all', label: `All (${blogs.length})` },
                         { id: 'published', label: `Published (${publishedCount})` },
@@ -212,7 +212,7 @@ export default function AdminBlogManagement() {
                             onClick={() => setStatusFilter(tab.id)}
                             style={{
                                 background: statusFilter === tab.id ? 'var(--accent-primary, #A3192F)' : 'var(--bg-input)',
-                                color: statusFilter === tab.id ? '#fff' : 'var(--text-secondary)',
+                                color: statusFilter === tab.id ? '#ffffff ' : 'var(--text-secondary)',
                                 border: '1px solid var(--border-color)',
                                 padding: '6px 12px',
                                 borderRadius: '6px',
@@ -231,7 +231,7 @@ export default function AdminBlogManagement() {
                     <select
                         value={categoryFilter}
                         onChange={e => setCategoryFilter(e.target.value)}
-                        style={{ width: '100%', padding: '9px 12px', borderRadius: '6px', border: '1px solid var(--border-color)', background: 'var(--bg-input)' }}
+                        style={{ width: '100%', padding: '9px 12px', borderRadius: '6px', border: '1px solid var(--border-color)', background: 'var(--bg-input)', color: 'red' }}
                     >
                         <option value="all">All Topics & Categories</option>
                         {categories.map(cat => (
