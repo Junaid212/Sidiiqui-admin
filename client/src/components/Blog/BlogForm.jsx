@@ -1,5 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { renderEditorialBody, renderHighlightBox, renderPullQuote, renderAuthorBox } from '../../utils/editorialRenderer';
+import RichTextEditor from './RichTextEditor';
+import DocxImporter from './DocxImporter';
+import toast from 'react-hot-toast';
 
 const REFERENCE_CATEGORIES = [
     'SID Philosophy',
@@ -14,6 +17,10 @@ const REFERENCE_CATEGORIES = [
 ];
 
 export default function BlogForm({ blog, allBlogs = [], onSubmit, onCancel }) {
+    // Word Document Importer & dirty state
+    const [showDocxImporter, setShowDocxImporter] = useState(false);
+    const [isDirty, setIsDirty] = useState(false);
+
     // Core fields
     const [title, setTitle] = useState('');
     const [slug, setSlug] = useState('');
@@ -23,6 +30,7 @@ export default function BlogForm({ blog, allBlogs = [], onSubmit, onCancel }) {
     const [isDropdownOpen, setIsDropdownOpen] = useState(false);
     const [published_date, setPublishedDate] = useState('');
     const [reading_time, setReadingTime] = useState('');
+
     const [author_byline, setAuthorByline] = useState('By M. Q. Siddiqui, Founder, Siddiqui.digital');
 
     // Editorial text & lead
@@ -304,16 +312,66 @@ export default function BlogForm({ blog, allBlogs = [], onSubmit, onCancel }) {
         });
     }
 
-    async function handleSubmit(e) {
-        e.preventDefault();
-        if (!title.trim() || !content.trim()) {
-            alert('Title and Article Content are required.');
+    // Handle Word Document Import result
+    function handleDocxImportComplete({ contentHtml, title: docTitle, wordCount }) {
+        if (contentHtml) {
+            setContent(contentHtml);
+            updateAutoReadingTime(contentHtml, title || docTitle || '');
+            setIsDirty(true);
+        }
+        if (docTitle) {
+            setTitle(docTitle);
+            if (!slug || slug === deriveSlug(title)) {
+                setSlug(deriveSlug(docTitle));
+            }
+        }
+    }
+
+    // Unsaved changes confirmation check on cancel
+    function safeCancel() {
+        if (isDirty) {
+            if (!window.confirm('You have unsaved changes in this article. Are you sure you want to discard them and exit?')) {
+                return;
+            }
+        }
+        onCancel();
+    }
+
+    // Handles form actions (Draft, Scheduled, Published, or Save Changes)
+    async function handleActionSubmit(targetStatus) {
+        const effectiveStatus = targetStatus || status;
+        const trimmedTitle = title.trim();
+        const trimmedContent = (content || '').trim();
+
+        if (!trimmedTitle) {
+            toast.error('Article Headline / Title is required.');
             return;
         }
 
-        if (status === 'scheduled' && !scheduled_for) {
-            alert('Please specify a scheduled publication date and time.');
+        const strippedText = trimmedContent.replace(/<[^>]*>/g, '').trim();
+        if (!strippedText && !trimmedContent) {
+            toast.error('Article Content cannot be empty.');
             return;
+        }
+
+        const derivedSlugVal = deriveSlug(slug || trimmedTitle);
+        if (!derivedSlugVal) {
+            toast.error('URL slug could not be generated.');
+            return;
+        }
+
+        // Slug uniqueness check against allBlogs
+        const duplicateSlug = (allBlogs || []).find(b =>
+            (!blog || String(b.id) !== String(blog.id)) &&
+            b.slug && b.slug.toLowerCase() === derivedSlugVal.toLowerCase()
+        );
+        if (duplicateSlug) {
+            toast.error(`The slug "${derivedSlugVal}" is already in use by another article. Please use a unique title or slug.`);
+            return;
+        }
+
+        if (effectiveStatus === 'scheduled' && !scheduled_for) {
+            toast.error('Please specify a scheduled publication date and time.');
         }
 
         setSubmitting(true);
@@ -321,8 +379,8 @@ export default function BlogForm({ blog, allBlogs = [], onSubmit, onCancel }) {
             const topic2String = secondaryCategories.map(c => c.trim()).filter(Boolean).join(', ');
 
             const formData = {
-                title: title.trim(),
-                slug: deriveSlug(slug || title),
+                title: trimmedTitle,
+                slug: derivedSlugVal,
                 topic,
                 topic2: topic2String,
                 published_date: published_date || new Date().toISOString().split('T')[0],
@@ -351,8 +409,8 @@ export default function BlogForm({ blog, allBlogs = [], onSubmit, onCancel }) {
                 book_concept: book_concept.trim(),
                 related_blog_ids: selectedRelatedIds,
 
-                status,
-                scheduled_for: status === 'scheduled' ? scheduled_for : null,
+                status: effectiveStatus,
+                scheduled_for: effectiveStatus === 'scheduled' ? scheduled_for : null,
                 is_featured,
 
                 seo_title: seo_title.trim(),
@@ -364,12 +422,20 @@ export default function BlogForm({ blog, allBlogs = [], onSubmit, onCancel }) {
             };
 
             await onSubmit(formData);
+            setIsDirty(false);
         } catch (err) {
-            console.error(err);
+            console.error('Submit error:', err);
+            toast.error(err?.message || 'Failed to save article');
         } finally {
             setSubmitting(false);
         }
     }
+
+    function handleSubmit(e) {
+        if (e?.preventDefault) e.preventDefault();
+        handleActionSubmit(status);
+    }
+
     const inputStyle = {
     // width: '100%',
     padding: '8px 10px',
@@ -386,7 +452,7 @@ export default function BlogForm({ blog, allBlogs = [], onSubmit, onCancel }) {
     const otherBlogs = (allBlogs || []).filter(b => !blog || String(b.id) !== String(blog.id));
 
     return (
-        <div className="modal-overlay" onClick={onCancel} style={{ zIndex: 1050 }}>
+        <div className="modal-overlay" onClick={safeCancel} style={{ zIndex: 1050 }}>
             <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '920px', width: '95%', maxHeight: '92vh', display: 'flex', flexDirection: 'column' }}>
                 <div className="modal__header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-color)', padding: '16px 24px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
@@ -426,8 +492,9 @@ export default function BlogForm({ blog, allBlogs = [], onSubmit, onCancel }) {
                             </button>
                         </div>
                     </div>
-                    <button className="modal__close" onClick={onCancel} style={{ fontSize: '1.5rem', background: 'none', border: 'none', cursor: 'pointer', color: 'inherit' }}>×</button>
+                    <button className="modal__close" onClick={safeCancel} style={{ fontSize: '1.5rem', background: 'none', border: 'none', cursor: 'pointer', color: 'inherit' }}>×</button>
                 </div>
+
 
                 <div style={{ flex: '1 1 auto', overflowY: 'auto', padding: '24px' }}>
                     {activeTab === 'preview' ? (
@@ -698,25 +765,50 @@ export default function BlogForm({ blog, allBlogs = [], onSubmit, onCancel }) {
 
                             {/* SECTION 2: EDITORIAL CONTENT & CALLOUTS */}
                             <div style={{ background: 'var(--bg-card)', padding: '20px', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
-                                <h3 style={{ fontSize: '1.05rem', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--accent-primary)' }}>
-                                    ✍️ 2. Editorial Body & Structure
-                                </h3>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', marginBottom: '16px' }}>
+                                    <h3 style={{ fontSize: '1.05rem', margin: 0, display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--accent-primary)' }}>
+                                        ✍️ 2. Editorial Body & Structure
+                                    </h3>
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowDocxImporter(true)}
+                                        className="btn btn--outline btn--sm"
+                                        style={{
+                                            borderColor: 'var(--accent-primary)',
+                                            color: 'var(--accent-primary)',
+                                            fontWeight: '600',
+                                            display: 'inline-flex',
+                                            alignItems: 'center',
+                                            gap: '8px',
+                                            padding: '6px 14px',
+                                            borderRadius: '6px'
+                                        }}
+                                        title="Import article structure, headings, text, and images from Microsoft Word document"
+                                    >
+                                        <span>📄 Import Word Document (.docx)</span>
+                                    </button>
+                                </div>
 
                                 <div className="form-group" style={{ marginBottom: '16px' }}>
-                                    <label htmlFor="blog-content">Full Article Body *</label>
-                                    <textarea
-                                        id="blog-content"
-                                        rows={12}
-                                        value={content}
-                                        onChange={(e) => {
-                                            setContent(e.target.value);
-                                            updateAutoReadingTime(e.target.value, title);
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                                        <label style={{ margin: 0, fontSize: '0.9rem', fontWeight: '600' }}>
+                                            Full Article Body *
+                                        </label>
+                                        <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                                            Rich text with headings, bold/italic, lists, links & inline images
+                                        </span>
+                                    </div>
+                                    <RichTextEditor
+                                        content={content}
+                                        onChange={(html) => {
+                                            setContent(html);
+                                            updateAutoReadingTime(html, title);
+                                            setIsDirty(true);
                                         }}
-                                        placeholder="Write the full article text. Paragraphs and subheadings can be added here..."
-                                        required
-                                        style={{ fontSize: '0.95rem', lineHeight: '1.6', color: 'var(--text-primary)', backgroundColor: '#141420', padding:'10px' }}
+                                        placeholder="Write your article body here, or use 'Import Word Document' above to import an existing .docx file..."
                                     />
                                 </div>
+
 
                                 {/* REPEATABLE SUB-SECTIONS (Up to 8) */}
                                 <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '18px', marginBottom: '22px' }}>
@@ -973,17 +1065,41 @@ export default function BlogForm({ blog, allBlogs = [], onSubmit, onCancel }) {
                                 </h3>
 
                                 <div className="form-group" style={{ marginBottom: '16px' }}>
-                                    <label>Article Cover Image</label>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                                        <label style={{ margin: 0 }}>Article Cover Image</label>
+                                        {preview && (
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setImage(null);
+                                                    setPreview(null);
+                                                    setIsDirty(true);
+                                                }}
+                                                className="btn btn--ghost btn--sm"
+                                                style={{ color: '#ef4444', fontSize: '0.78rem', padding: '2px 8px' }}
+                                            >
+                                                ✕ Remove Cover Image
+                                            </button>
+                                        )}
+                                    </div>
                                     <div className="image-upload">
                                         <input
                                             type="file"
                                             accept="image/jpeg,image/png,image/webp,image/gif"
-                                            onChange={handleImageChange}
+                                            onChange={(e) => {
+                                                handleImageChange(e);
+                                                setIsDirty(true);
+                                            }}
                                             className="image-upload__input"
                                         />
                                         <div className="image-upload__area" style={{ maxHeight: '220px', overflow: 'hidden' }}>
                                             {preview ? (
-                                                <img src={preview} alt="Preview" className="image-upload__preview" style={{ maxHeight: '200px', objectFit: 'contain' }} />
+                                                <div style={{ width: '100%', textAlign: 'center', padding: '10px' }}>
+                                                    <img src={preview} alt="Preview" className="image-upload__preview" style={{ maxHeight: '180px', objectFit: 'contain' }} />
+                                                    <div style={{ marginTop: '6px', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                                                        Click or drop new image to replace
+                                                    </div>
+                                                </div>
                                             ) : (
                                                 <div className="image-upload__placeholder">
                                                     <span>📷</span>
@@ -994,6 +1110,7 @@ export default function BlogForm({ blog, allBlogs = [], onSubmit, onCancel }) {
                                         </div>
                                     </div>
                                 </div>
+
 
                                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '16px' }}>
                                     <div className="form-group">
@@ -1233,27 +1350,117 @@ export default function BlogForm({ blog, allBlogs = [], onSubmit, onCancel }) {
                             </div>
 
                             {/* FORM ACTIONS */}
-                            <div className="form-actions" style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '10px' }}>
-                                <button
-                                    type="button"
-                                    className="btn btn--ghost"
-                                    onClick={onCancel}
-                                    disabled={submitting}
-                                >
-                                    Cancel
-                                </button>
-                                <button
-                                    type="submit"
-                                    className="btn btn--primary"
-                                    disabled={submitting}
-                                    style={{ minWidth: '150px' }}
-                                >
-                                    {submitting ? 'Saving...' : blog ? 'Update Article' : (status === 'draft' ? 'Save Draft' : 'Publish Article')}
-                                </button>
+                            <div className="form-actions" style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '12px', marginTop: '20px', paddingTop: '16px', borderTop: '1px solid var(--border-color)' }}>
+                                <div style={{ display: 'flex', gap: '10px' }}>
+                                    <button
+                                        type="button"
+                                        className="btn btn--ghost"
+                                        onClick={safeCancel}
+                                        disabled={submitting}
+                                    >
+                                        Cancel
+                                    </button>
+                                    <button
+                                        type="button"
+                                        className="btn btn--outline"
+                                        onClick={() => setActiveTab('preview')}
+                                    >
+                                        👁️ Preview Article
+                                    </button>
+                                </div>
+
+                                <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '10px' }}>
+                                    {/* Save as Draft (private) */}
+                                    <button
+                                        type="button"
+                                        className="btn btn--outline"
+                                        onClick={() => handleActionSubmit('draft')}
+                                        disabled={submitting}
+                                        style={{ borderColor: '#64748b', color: '#cbd5e1' }}
+                                        title="Save as private draft (hidden from public website)"
+                                    >
+                                        {submitting ? 'Saving...' : '💾 Save Draft'}
+                                    </button>
+
+                                    {/* Schedule button */}
+                                    {status === 'scheduled' && (
+                                        <button
+                                            type="button"
+                                            className="btn btn--primary"
+                                            onClick={() => handleActionSubmit('scheduled')}
+                                            disabled={submitting}
+                                            style={{ background: '#3b82f6' }}
+                                        >
+                                            {submitting ? 'Scheduling...' : '⏰ Schedule Publication'}
+                                        </button>
+                                    )}
+
+                                    {/* Action buttons depending on edit vs create and current status */}
+                                    {blog ? (
+                                        <>
+                                            {status !== 'published' ? (
+                                                <>
+                                                    <button
+                                                        type="button"
+                                                        className="btn btn--outline"
+                                                        onClick={() => handleActionSubmit(status)}
+                                                        disabled={submitting}
+                                                        style={{ minWidth: '130px' }}
+                                                        title="Save changes while keeping article unpublished/draft"
+                                                    >
+                                                        {submitting ? 'Saving...' : 'Save (Keep Unpublished)'}
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        className="btn btn--primary"
+                                                        onClick={() => handleActionSubmit('published')}
+                                                        disabled={submitting}
+                                                        style={{ background: '#10b981', minWidth: '150px' }}
+                                                        title="Publish this article immediately to the public website"
+                                                    >
+                                                        {submitting ? 'Publishing...' : '🚀 Publish to Website'}
+                                                    </button>
+                                                </>
+                                            ) : (
+                                                <button
+                                                    type="button"
+                                                    className="btn btn--primary"
+                                                    onClick={() => handleActionSubmit('published')}
+                                                    disabled={submitting}
+                                                    style={{ background: '#10b981', minWidth: '150px' }}
+                                                    title="Save changes to the live published article"
+                                                >
+                                                    {submitting ? 'Updating...' : '💾 Update Live Article'}
+                                                </button>
+                                            )}
+                                        </>
+                                    ) : (
+                                        status !== 'scheduled' && (
+                                            <button
+                                                type="button"
+                                                className="btn btn--primary"
+                                                onClick={() => handleActionSubmit('published')}
+                                                disabled={submitting}
+                                                style={{ background: '#10b981', minWidth: '160px' }}
+                                                title="Publish this new article to the public website"
+                                            >
+                                                {submitting ? 'Publishing...' : '🚀 Publish Article'}
+                                            </button>
+                                        )
+                                    )}
+                                </div>
                             </div>
                         </form>
                     )}
                 </div>
+
+                {/* Word Document Importer Modal */}
+                <DocxImporter
+                    isOpen={showDocxImporter}
+                    onClose={() => setShowDocxImporter(false)}
+                    onImportComplete={handleDocxImportComplete}
+                    currentTitle={title}
+                />
             </div>
         </div>
     );

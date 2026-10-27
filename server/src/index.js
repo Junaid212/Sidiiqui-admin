@@ -92,7 +92,7 @@ app.get('/api/public/ask-sid-config', async (req, res) => {
             publicDemoEnabled: settings.publicDemoEnabled !== false,
             demoQuestionLimit: Number(settings.demoQuestionLimit || 1),
             upgradeCtaText: settings.upgradeCtaText || 'Unlock Full Ask SID with the Digital Companion Edition ($49.99)',
-            upgradeUrl: settings.upgradeUrl || '/publications/marketing-reclassified-principle-first-approach',
+            upgradeUrl: settings.upgradeUrl || '/publications/marketing-reclassified',
             advisoryCtaEnabled: settings.advisoryCtaEnabled !== false,
             advisoryUrl: settings.advisoryUrl || '/consultation'
         });

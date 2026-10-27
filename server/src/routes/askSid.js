@@ -54,7 +54,7 @@ router.put('/settings', async (req, res) => {
       fullAccessProductId: fullAccessProductId ? String(fullAccessProductId).trim() : "04b84648-3609-4b31-9ded-2486bacf1e74",
       onlineEditionProductId: onlineEditionProductId ? String(onlineEditionProductId).trim() : "prod_online_reading_001",
       upgradeCtaText: upgradeCtaText ? String(upgradeCtaText).trim() : "Unlock Full Ask SID with the Digital Companion Edition ($49.99)",
-      upgradeUrl: upgradeUrl ? String(upgradeUrl).trim() : "/publications/marketing-reclassified-principle-first-approach",
+      upgradeUrl: upgradeUrl ? String(upgradeUrl).trim() : "/publications/marketing-reclassified",
       advisoryCtaEnabled: advisoryCtaEnabled !== undefined ? Boolean(advisoryCtaEnabled) : true,
       advisoryUrl: advisoryUrl ? String(advisoryUrl).trim() : "/consultation"
     });

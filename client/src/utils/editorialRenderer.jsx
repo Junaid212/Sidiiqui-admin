@@ -1,16 +1,38 @@
 import React from 'react';
+import DOMPurify from 'dompurify';
+
+/**
+ * Checks if a string contains HTML markup
+ */
+export function isHtmlContent(str) {
+    if (!str || typeof str !== 'string') return false;
+    return /<\/?(p|h[1-6]|ul|ol|li|blockquote|strong|b|em|i|u|s|span|div|a|img|hr|br|table|pre|code)[^>]*>/i.test(str);
+}
 
 /**
  * Parses and renders editorial body text:
- * - Keeps blank lines between paragraphs
- * - Groups lines starting with • (or · or -) into bullet lists
- * - Preserves line breaks
+ * - If HTML, sanitizes with DOMPurify and renders dangerouslySetInnerHTML
+ * - If legacy plain text, keeps blank lines and groups bullet lists
  */
 export function renderEditorialBody(text) {
     if (!text || typeof text !== 'string') return null;
 
-    // Split on double newlines to maintain blank lines between paragraphs
+    if (isHtmlContent(text)) {
+        const clean = DOMPurify.sanitize(text, {
+            ADD_TAGS: ['iframe'],
+            ADD_ATTR: ['allow', 'allowfullscreen', 'frameborder', 'scrolling', 'target', 'rel']
+        });
+        return (
+            <div
+                className="editorial-rendered-content"
+                dangerouslySetInnerHTML={{ __html: clean }}
+            />
+        );
+    }
+
+    // Legacy plain-text fallback: Split on double newlines
     const blocks = text.split(/\n\s*\n/);
+
 
     return blocks.map((block, bIdx) => {
         const trimmedBlock = block.trim();

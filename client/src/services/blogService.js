@@ -250,3 +250,39 @@ export async function deleteBlog(id) {
         method: 'DELETE'
     });
 }
+
+/**
+ * Upload an image file for the rich text editor (TipTap)
+ */
+export async function uploadEditorImage(file) {
+    if (!file) throw new Error('No file provided for editor image upload');
+
+    const formData = new FormData();
+    formData.append('image', file);
+
+    const data = await apiRequest('/blogs/upload-image', {
+        method: 'POST',
+        body: formData
+    });
+
+    return data.url;
+}
+
+/**
+ * Upload Base64 image payload (extracted during docx import)
+ */
+export async function uploadBase64Image({ base64, filename, contentType }) {
+    if (!base64) throw new Error('No Base64 data provided');
+
+    const data = await apiRequest('/blogs/upload-image', {
+        method: 'POST',
+        body: JSON.stringify({
+            imageBase64: base64,
+            filename: filename || 'docx-image',
+            contentType: contentType || 'image/png'
+        })
+    });
+
+    return data.url;
+}
+

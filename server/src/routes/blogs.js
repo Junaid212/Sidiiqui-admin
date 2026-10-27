@@ -170,17 +170,36 @@ async function safeDbOperation(operation, payload, id = null) {
                 return res;
             }
 
-            // Check if error is due to missing column (Postgres 42703)
+            // Check if error is due to missing column (Postgres 42703 or PostgREST PGRST204 / schema cache)
             const err = res.error;
-            if (err.code === '42703' || (err.message && err.message.includes('column'))) {
-                // Try to identify the column name in error message
-                const match = err.message.match(/column ["']?([a-zA-Z0-9_]+)["']? of relation/i) ||
-                              err.message.match(/could not find column ["']?([a-zA-Z0-9_]+)["']?/i) ||
-                              err.message.match(/"([a-zA-Z0-9_]+)" does not exist/i);
-                
-                if (match && match[1] && currentPayload[match[1]] !== undefined) {
-                    console.warn(`[Schema Fallback] Column '${match[1]}' not in database. Omitting...`);
-                    delete currentPayload[match[1]];
+            if (
+                err.code === '42703' ||
+                err.code === 'PGRST204' ||
+                (err.message && (err.message.includes('column') || err.message.includes('schema cache')))
+            ) {
+                // Try to identify the column name in error message (including PostgREST "Could not find the 'xyz' column of 'blogs' in the schema cache")
+                const match =
+                    err.message.match(/Could not find the ['"]?([a-zA-Z0-9_]+)['"]? column/i) ||
+                    err.message.match(/column ['"]?([a-zA-Z0-9_]+)['"]? of relation/i) ||
+                    err.message.match(/column ['"]?([a-zA-Z0-9_]+)['"]? does not exist/i) ||
+                    err.message.match(/could not find column ['"]?([a-zA-Z0-9_]+)['"]?/i) ||
+                    err.message.match(/['"]([a-zA-Z0-9_]+)['"] does not exist/i) ||
+                    err.message.match(/['"]([a-zA-Z0-9_]+)['"] column/i);
+
+                let failedCol = match && match[1] ? match[1] : null;
+
+                // Fallback: check which key in currentPayload is mentioned in the error message
+                if (!failedCol) {
+                    failedCol = Object.keys(currentPayload).find(k =>
+                        err.message.includes(`'${k}'`) ||
+                        err.message.includes(`"${k}"`) ||
+                        err.message.includes(` ${k} `)
+                    );
+                }
+
+                if (failedCol && currentPayload[failedCol] !== undefined) {
+                    console.warn(`[Schema Fallback] Column '${failedCol}' not in database schema. Omitting from DB payload and retrying...`);
+                    delete currentPayload[failedCol];
                     continue;
                 }
             }
@@ -586,4 +605,67 @@ router.delete('/:id', async (req, res) => {
     }
 });
 
+// POST /api/blogs/upload-image — Upload inline editor image or docx embedded image
+router.post('/upload-image', (req, res, next) => {
+    // If request is json (e.g. Base64 from docx importer), bypass multer
+    if (req.is('application/json')) {
+        return next();
+    }
+    upload.single('image')(req, res, next);
+}, async (req, res) => {
+    try {
+        // Case 1: Base64 payload (from docx parser or client base64 upload)
+        if (req.body && req.body.imageBase64) {
+            const { imageBase64, filename = 'inline-image', contentType = 'image/png' } = req.body;
+            const pureBase64 = imageBase64.replace(/^data:image\/\w+;base64,/, '');
+            const buffer = Buffer.from(pureBase64, 'base64');
+
+            if (buffer.length > 10 * 1024 * 1024) {
+                return res.status(400).json({ error: 'Image exceeds maximum size of 10MB' });
+            }
+
+            const extMatch = contentType.split('/')[1] || 'png';
+            const safeExt = `.${extMatch.replace(/[^a-zA-Z0-9]/g, '')}`;
+            const safeBase = filename.replace(/\.[^/.]+$/, '').replace(/[^a-zA-Z0-9_-]/g, '-').slice(0, 40) || 'image';
+            const fileName = `${Date.now()}-${safeBase}${safeExt}`;
+            const filePath = `blog-images/${fileName}`;
+
+            const { error: uploadError } = await supabaseAdmin.storage
+                .from('blogs')
+                .upload(filePath, buffer, {
+                    contentType,
+                    upsert: false
+                });
+
+            if (uploadError) throw uploadError;
+
+            const { data: urlData } = supabaseAdmin.storage
+                .from('blogs')
+                .getPublicUrl(filePath);
+
+            return res.status(200).json({
+                success: true,
+                url: urlData.publicUrl,
+                path: filePath
+            });
+        }
+
+        // Case 2: Multipart file upload (from TipTap editor image button)
+        if (req.file) {
+            const { url, path: filePath } = await uploadImage(req.file);
+            return res.status(200).json({
+                success: true,
+                url,
+                path: filePath
+            });
+        }
+
+        return res.status(400).json({ error: 'No image file or imageBase64 data provided' });
+    } catch (err) {
+        console.error('Image upload error:', err);
+        return res.status(500).json({ error: err?.message || 'Failed to upload image' });
+    }
+});
+
 module.exports = router;
+
