@@ -2,6 +2,8 @@ import { useState, useEffect, useMemo } from 'react';
 import { fetchBlogs, createBlog, updateBlog, deleteBlog, updateBlogStatus } from '../services/blogService';
 import BlogList from '../components/Blog/BlogList';
 import BlogForm from '../components/Blog/BlogForm';
+import ZipImporterModal from '../components/Blog/ZipImporterModal';
+import ErrorBoundary from '../components/Common/ErrorBoundary';
 import toast from 'react-hot-toast';
 import { renderEditorialBody, renderHighlightBox, renderPullQuote, renderAuthorBox } from '../utils/editorialRenderer';
 
@@ -9,6 +11,7 @@ export default function AdminBlogManagement() {
     const [blogs, setBlogs] = useState([]);
     const [loading, setLoading] = useState(true);
     const [showForm, setShowForm] = useState(false);
+    const [showZipImporter, setShowZipImporter] = useState(false);
     const [editingBlog, setEditingBlog] = useState(null);
     const [previewBlog, setPreviewBlog] = useState(null);
 
@@ -173,15 +176,32 @@ export default function AdminBlogManagement() {
                         {blogs.length} articles ({publishedCount} published, {draftCount} drafts, {scheduledCount} scheduled)
                     </p>
                 </div>
-                <button
-                    className="btn btn--primary"
-                    onClick={() => {
-                        setEditingBlog(null);
-                        setShowForm(true);
-                    }}
-                >
-                    + New Editorial Article
-                </button>
+                <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                    <button
+                        className="btn btn--outline"
+                        onClick={() => setShowZipImporter(true)}
+                        style={{
+                            borderColor: 'var(--success, #10b981)',
+                            color: 'var(--success, #10b981)',
+                            fontWeight: '600',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '8px'
+                        }}
+                        title="Import articles and images from a ZIP archive"
+                    >
+                        <span>📦 Import ZIP (Bulk / Single)</span>
+                    </button>
+                    <button
+                        className="btn btn--primary"
+                        onClick={() => {
+                            setEditingBlog(null);
+                            setShowForm(true);
+                        }}
+                    >
+                        + New Editorial Article
+                    </button>
+                </div>
             </div>
 
             {/* Filter and Search Bar */}
@@ -257,6 +277,19 @@ export default function AdminBlogManagement() {
                     onSubmit={editingBlog ? handleUpdate : handleCreate}
                     onCancel={handleCancel}
                 />
+            )}
+
+            {/* ZIP Importer Modal */}
+            {showZipImporter && (
+                <ErrorBoundary onReset={() => setShowZipImporter(false)}>
+                    <ZipImporterModal
+                        isOpen={showZipImporter}
+                        onClose={() => setShowZipImporter(false)}
+                        onImportComplete={() => {
+                            loadBlogs();
+                        }}
+                    />
+                </ErrorBoundary>
             )}
 
             {/* Standalone Dashboard Preview Modal */}

@@ -1,6 +1,7 @@
 
 const blogSocialsStore = require('../utils/blogSocialsStore');
 const blogSubsectionsStore = require('../utils/blogSubsectionsStore');
+const { parseZipArticles } = require('../utils/zipArticleParser');
 
 function enrichBlogSocials(b) {
     if (!b) return b;
@@ -33,6 +34,23 @@ const upload = multer({
             cb(null, true);
         } else {
             cb(new Error('Invalid file type. Only JPEG, PNG, WebP, and GIF are allowed.'));
+        }
+    },
+});
+
+// Configure multer for ZIP archive uploads (up to 60MB limit)
+const zipUpload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 60 * 1024 * 1024 },
+    fileFilter: (req, file, cb) => {
+        const isZip = file.mimetype === 'application/zip' ||
+            file.mimetype === 'application/x-zip-compressed' ||
+            file.mimetype === 'application/octet-stream' ||
+            (file.originalname && file.originalname.toLowerCase().endsWith('.zip'));
+        if (isZip) {
+            cb(null, true);
+        } else {
+            cb(new Error('Invalid file format. Please upload a valid .zip archive.'));
         }
     },
 });
@@ -664,6 +682,232 @@ router.post('/upload-image', (req, res, next) => {
     } catch (err) {
         console.error('Image upload error:', err);
         return res.status(500).json({ error: err?.message || 'Failed to upload image' });
+    }
+});
+
+// POST /api/blogs/import-zip/inspect — Extract, validate, inspect ZIP archive and match articles & images
+router.post('/import-zip/inspect', zipUpload.single('zipFile'), async (req, res) => {
+    try {
+        if (!req.file || !req.file.buffer) {
+            return res.status(400).json({ error: 'No ZIP archive file provided' });
+        }
+
+        // Fetch existing blogs for collision and duplicate checking
+        const { data: existingBlogs, error: dbErr } = await supabaseAdmin
+            .from('blogs')
+            .select('id, title, slug, status, created_at');
+
+        if (dbErr) {
+            console.error('Failed to fetch existing blogs for zip comparison:', dbErr);
+        }
+
+        const result = await parseZipArticles(req.file.buffer, existingBlogs || []);
+        return res.status(200).json({
+            success: true,
+            summary: result.summary,
+            articles: result.articles,
+        });
+    } catch (err) {
+        console.error('ZIP inspection error:', err);
+        return res.status(400).json({ error: err.message || 'Failed to inspect ZIP archive' });
+    }
+});
+
+// POST /api/blogs/import-zip/commit-batch — Save a batch of confirmed articles safely & idempotently
+router.post('/import-zip/commit-batch', async (req, res) => {
+    try {
+        const adminId = req.user?.id || '3417e953-65a4-4f74-aefb-85847c4644ab';
+        const { articles } = req.body;
+
+        if (!Array.isArray(articles) || articles.length === 0) {
+            return res.status(400).json({ error: 'Articles array is required' });
+        }
+
+        const saved = [];
+        const skipped = [];
+        const failed = [];
+
+        for (const art of articles) {
+            try {
+                const targetStatus = art.status || 'draft';
+                const trimmedTitle = (art.title || '').trim();
+
+                if (!trimmedTitle || !art.content) {
+                    failed.push({
+                        title: trimmedTitle || 'Untitled',
+                        error: 'Missing required title or editorial content'
+                    });
+                    continue;
+                }
+
+                // If collision and user chose skip
+                if (art.hasConflict && art.conflictAction === 'skip') {
+                    skipped.push({
+                        title: trimmedTitle,
+                        slug: art.slug,
+                        reason: 'Skipped by admin preference to preserve existing article'
+                    });
+                    continue;
+                }
+
+                // If collision and update confirmed
+                if (art.hasConflict && art.conflictAction === 'overwrite') {
+                    if (!art.overwriteConfirmed) {
+                        skipped.push({
+                            title: trimmedTitle,
+                            slug: art.slug,
+                            reason: 'Overwrite was requested but not explicitly confirmed'
+                        });
+                        continue;
+                    }
+
+                    const targetId = art.existingMatch?.id;
+                    if (!targetId) {
+                        failed.push({
+                            title: trimmedTitle,
+                            error: 'Target article ID for overwrite was not found'
+                        });
+                        continue;
+                    }
+
+                    const updatePayload = {
+                        title: trimmedTitle,
+                        content: art.content,
+                        topic: art.topic ? String(art.topic).trim() : null,
+                        topic2: sanitizeTopic(art.topic2),
+                        published_date: sanitizeDate(art.published_date),
+                        slug: generateSlug(art.slug || trimmedTitle),
+                        summary: art.summary || null,
+                        standfirst: art.standfirst || null,
+                        reading_time: art.reading_time || null,
+                        author_byline: art.author_byline || 'By M. Q. Siddiqui, Founder, Siddiqui.digital',
+                        image_caption: art.image_caption || null,
+                        image_alt: art.image_alt || null,
+                        pull_quote: art.pull_quote || null,
+                        pull_quote_author: art.pull_quote_author || null,
+                        concluding_insight: art.concluding_insight || null,
+                        status: targetStatus,
+                        scheduled_for: sanitizeDate(art.scheduled_for),
+                        related_to_book: !!art.related_to_book,
+                        book_concept: art.book_concept || null,
+                        seo_title: art.seo_title || null,
+                        seo_description: art.seo_description || null,
+                        linkedin_url: art.linkedin_url ? String(art.linkedin_url).trim() : null,
+                        instagram_url: art.instagram_url ? String(art.instagram_url).trim() : null,
+                        facebook_url: art.facebook_url ? String(art.facebook_url).trim() : null,
+                        updated_at: new Date().toISOString()
+                    };
+
+                    if (art.image_url) {
+                        updatePayload.image_url = art.image_url;
+                        updatePayload.image_path = art.image_path || null;
+                    }
+
+                    const { data: updated, error: updateErr } = await safeDbOperation('update', updatePayload, targetId);
+                    if (updateErr) {
+                        failed.push({ title: trimmedTitle, error: updateErr.message });
+                    } else {
+                        saved.push(enrichBlogRecord(updated));
+                    }
+                    continue;
+                }
+
+                // Determine final slug for new article
+                let finalSlug = generateSlug(art.slug || trimmedTitle);
+
+                // If collision and user chose rename_slug, or if slug is already taken
+                if (art.hasConflict && art.conflictAction === 'rename_slug') {
+                    finalSlug = `${finalSlug}-${Date.now().toString(36)}`;
+                } else {
+                    // Idempotent safety check: does this slug already exist?
+                    const { data: existingWithSlug } = await supabaseAdmin
+                        .from('blogs')
+                        .select('id, title, slug')
+                        .eq('slug', finalSlug)
+                        .maybeSingle();
+
+                    if (existingWithSlug) {
+                        // Avoid accidental duplicates or collisions
+                        finalSlug = `${finalSlug}-${Date.now().toString(36)}`;
+                    }
+                }
+
+                const insertPayload = {
+                    admin_id: adminId,
+                    title: trimmedTitle,
+                    content: art.content,
+                    topic: art.topic ? String(art.topic).trim() : null,
+                    topic2: sanitizeTopic(art.topic2),
+                    published_date: sanitizeDate(art.published_date) || new Date().toISOString().split('T')[0],
+                    slug: finalSlug,
+                    summary: art.summary || null,
+                    standfirst: art.standfirst || null,
+                    reading_time: art.reading_time || null,
+                    author_byline: art.author_byline || 'By M. Q. Siddiqui, Founder, Siddiqui.digital',
+                    image_url: art.image_url || null,
+                    image_path: art.image_path || null,
+                    image_caption: art.image_caption || null,
+                    image_alt: art.image_alt || null,
+                    pull_quote: art.pull_quote || null,
+                    pull_quote_author: art.pull_quote_author || null,
+                    pull_quote_position: art.pull_quote_position !== undefined ? Number(art.pull_quote_position) : 1,
+                    concluding_insight: art.concluding_insight || null,
+                    is_featured: !!art.is_featured,
+                    status: targetStatus,
+                    scheduled_for: sanitizeDate(art.scheduled_for),
+                    related_to_book: !!art.related_to_book,
+                    book_concept: art.book_concept || null,
+                    related_blog_ids: Array.isArray(art.related_blog_ids) ? art.related_blog_ids : [],
+                    seo_title: art.seo_title || null,
+                    seo_description: art.seo_description || null,
+                    linkedin_url: art.linkedin_url ? String(art.linkedin_url).trim() : null,
+                    instagram_url: art.instagram_url ? String(art.instagram_url).trim() : null,
+                    facebook_url: art.facebook_url ? String(art.facebook_url).trim() : null,
+                };
+
+                const { data: inserted, error: insertErr } = await safeDbOperation('insert', insertPayload);
+
+                if (insertErr) {
+                    failed.push({ title: trimmedTitle, error: insertErr.message });
+                } else if (inserted && inserted.id) {
+                    if (art.linkedin_url || art.instagram_url || art.facebook_url) {
+                        blogSocialsStore.setSocials(inserted.id, {
+                            linkedin_url: art.linkedin_url,
+                            instagram_url: art.instagram_url,
+                            facebook_url: art.facebook_url
+                        });
+                    }
+                    if (Array.isArray(art.sub_sections) && art.sub_sections.length > 0) {
+                        blogSubsectionsStore.setSubsections(inserted.id, {
+                            sub_sections: art.sub_sections,
+                            pull_quote_position: art.pull_quote_position !== undefined ? Number(art.pull_quote_position) : 1
+                        });
+                    }
+                    saved.push(enrichBlogRecord(inserted));
+                }
+            } catch (singleErr) {
+                failed.push({
+                    title: art.title || 'Unknown',
+                    error: singleErr.message || 'Error processing article'
+                });
+            }
+        }
+
+        return res.status(200).json({
+            success: true,
+            batchResults: {
+                saved,
+                skipped,
+                failed,
+                totalProcessed: articles.length,
+                successCount: saved.length,
+                skippedCount: skipped.length,
+                failedCount: failed.length
+            }
+        });
+    } catch (err) {
+        console.error('Commit batch error:', err);
+        return res.status(500).json({ error: err.message || 'Batch commit failed' });
     }
 });
 

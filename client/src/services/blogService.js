@@ -286,3 +286,37 @@ export async function uploadBase64Image({ base64, filename, contentType }) {
     return data.url;
 }
 
+/**
+ * Upload and inspect a ZIP archive on the server.
+ * Extracts documents, uploads images, matches metadata, and checks for collisions.
+ */
+export async function inspectZipArchive(zipFile) {
+    if (!zipFile) throw new Error('No ZIP file provided');
+
+    const formData = new FormData();
+    formData.append('zipFile', zipFile);
+
+    const data = await apiRequest('/blogs/import-zip/inspect', {
+        method: 'POST',
+        body: formData,
+    });
+
+    return data;
+}
+
+/**
+ * Commit a batch of reviewed articles from the ZIP import to the database.
+ */
+export async function commitZipImportBatch(articles) {
+    if (!Array.isArray(articles) || articles.length === 0) {
+        throw new Error('Articles list is empty');
+    }
+
+    const data = await apiRequest('/blogs/import-zip/commit-batch', {
+        method: 'POST',
+        body: JSON.stringify({ articles }),
+    });
+
+    return data;
+}
+

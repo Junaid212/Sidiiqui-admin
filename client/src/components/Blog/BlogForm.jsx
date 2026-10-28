@@ -2,6 +2,8 @@ import { useState, useEffect, useRef } from 'react';
 import { renderEditorialBody, renderHighlightBox, renderPullQuote, renderAuthorBox } from '../../utils/editorialRenderer';
 import RichTextEditor from './RichTextEditor';
 import DocxImporter from './DocxImporter';
+import ZipImporterModal from './ZipImporterModal';
+import ErrorBoundary from '../Common/ErrorBoundary';
 import toast from 'react-hot-toast';
 
 const REFERENCE_CATEGORIES = [
@@ -17,8 +19,9 @@ const REFERENCE_CATEGORIES = [
 ];
 
 export default function BlogForm({ blog, allBlogs = [], onSubmit, onCancel }) {
-    // Word Document Importer & dirty state
+    // Word Document & ZIP Importers
     const [showDocxImporter, setShowDocxImporter] = useState(false);
+    const [showZipImporter, setShowZipImporter] = useState(false);
     const [isDirty, setIsDirty] = useState(false);
 
     // Core fields
@@ -325,6 +328,34 @@ export default function BlogForm({ blog, allBlogs = [], onSubmit, onCancel }) {
                 setSlug(deriveSlug(docTitle));
             }
         }
+    }
+
+    // Handle loading a selected article from ZIP import into the current form
+    function handleLoadZipArticle(article) {
+        if (!article) return;
+        if (article.title) setTitle(article.title);
+        if (article.slug) setSlug(article.slug);
+        if (article.topic) setTopic(article.topic);
+        if (Array.isArray(article.topic2)) setSecondaryCategories(article.topic2);
+        if (article.published_date) setPublishedDate(article.published_date);
+        if (article.reading_time) setReadingTime(article.reading_time);
+        if (article.author_byline) setAuthorByline(article.author_byline);
+        if (article.summary) setSummary(article.summary);
+        if (article.standfirst) setStandfirst(article.standfirst);
+        if (article.content) setContent(article.content);
+        if (Array.isArray(article.sub_sections)) setSubSections(article.sub_sections);
+        if (article.pull_quote) setPullQuote(article.pull_quote);
+        if (article.pull_quote_author) setPullQuoteAuthor(article.pull_quote_author);
+        if (article.pull_quote_position !== undefined) setPullQuotePosition(Number(article.pull_quote_position));
+        if (article.concluding_insight) setConcludingInsight(article.concluding_insight);
+        if (article.image_url) {
+            setPreview(article.image_url);
+        }
+        if (article.status) setStatus(article.status);
+        if (article.scheduled_for) setScheduledFor(article.scheduled_for);
+        if (article.seo_title) setSeoTitle(article.seo_title);
+        if (article.seo_description) setSeoDescription(article.seo_description);
+        setIsDirty(true);
     }
 
     // Unsaved changes confirmation check on cancel
@@ -769,24 +800,44 @@ export default function BlogForm({ blog, allBlogs = [], onSubmit, onCancel }) {
                                     <h3 style={{ fontSize: '1.05rem', margin: 0, display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--accent-primary)' }}>
                                         ✍️ 2. Editorial Body & Structure
                                     </h3>
-                                    <button
-                                        type="button"
-                                        onClick={() => setShowDocxImporter(true)}
-                                        className="btn btn--outline btn--sm"
-                                        style={{
-                                            borderColor: 'var(--accent-primary)',
-                                            color: 'var(--accent-primary)',
-                                            fontWeight: '600',
-                                            display: 'inline-flex',
-                                            alignItems: 'center',
-                                            gap: '8px',
-                                            padding: '6px 14px',
-                                            borderRadius: '6px'
-                                        }}
-                                        title="Import article structure, headings, text, and images from Microsoft Word document"
-                                    >
-                                        <span>📄 Import Word Document (.docx)</span>
-                                    </button>
+                                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowZipImporter(true)}
+                                            className="btn btn--outline btn--sm"
+                                            style={{
+                                                borderColor: 'var(--success, #10b981)',
+                                                color: 'var(--success, #10b981)',
+                                                fontWeight: '600',
+                                                display: 'inline-flex',
+                                                alignItems: 'center',
+                                                gap: '6px',
+                                                padding: '6px 14px',
+                                                borderRadius: '6px'
+                                            }}
+                                            title="Import articles and images from ZIP archive"
+                                        >
+                                            <span>📦 Import ZIP</span>
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowDocxImporter(true)}
+                                            className="btn btn--outline btn--sm"
+                                            style={{
+                                                borderColor: 'var(--accent-primary)',
+                                                color: 'var(--accent-primary)',
+                                                fontWeight: '600',
+                                                display: 'inline-flex',
+                                                alignItems: 'center',
+                                                gap: '6px',
+                                                padding: '6px 14px',
+                                                borderRadius: '6px'
+                                            }}
+                                            title="Import article structure, headings, text, and images from Microsoft Word document"
+                                        >
+                                            <span>📄 Import Word (.docx)</span>
+                                        </button>
+                                    </div>
                                 </div>
 
                                 <div className="form-group" style={{ marginBottom: '16px' }}>
@@ -1461,6 +1512,22 @@ export default function BlogForm({ blog, allBlogs = [], onSubmit, onCancel }) {
                     onImportComplete={handleDocxImportComplete}
                     currentTitle={title}
                 />
+
+                {/* ZIP Archive Importer Modal */}
+                {showZipImporter && (
+                    <ErrorBoundary onReset={() => setShowZipImporter(false)}>
+                        <ZipImporterModal
+                            isOpen={showZipImporter}
+                            onClose={() => setShowZipImporter(false)}
+                            onImportComplete={() => {
+                                setShowZipImporter(false);
+                                if (onCancel) onCancel();
+                            }}
+                            onLoadIntoEditor={handleLoadZipArticle}
+                            isInsideEditor={true}
+                        />
+                    </ErrorBoundary>
+                )}
             </div>
         </div>
     );
