@@ -213,7 +213,7 @@ export default function AdminBlogManagement() {
                         placeholder="🔍 Search articles by title, keywords, or slug..."
                         value={searchQuery}
                         onChange={e => setSearchQuery(e.target.value)}
-                        style={{ width: '100%', padding: '9px 14px', borderRadius: '6px', border: '1px solid var(--border-color)', background: 'var(--bg-input)' }}
+                        style={{ width: '100%', padding: '9px 14px', borderRadius: '6px', border: '1px solid var(--border-color)', background: 'var(--bg-input)', color: 'white' }}
                     />
                 </div>
 

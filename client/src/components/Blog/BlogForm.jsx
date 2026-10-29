@@ -302,18 +302,16 @@ export default function BlogForm({ blog, allBlogs = [], onSubmit, onCancel }) {
     }
 
     function toggleRelatedBlog(relId) {
-        const idStr = String(relId);
-        setSelectedRelatedIds(prev => {
-            if (prev.includes(idStr)) {
-                return prev.filter(i => i !== idStr);
-            }
-            if (prev.length >= 3) {
-                alert('You can select a maximum of 3 related articles.');
-                return prev;
-            }
-            return [...prev, idStr];
-        });
-    }
+    const idStr = String(relId);
+
+    setSelectedRelatedIds(prev => {
+        if (prev.includes(idStr)) {
+            return prev.filter(id => id !== idStr);
+        }
+
+        return [...prev, idStr];
+    });
+}
 
     // Handle Word Document Import result
     function handleDocxImportComplete({ contentHtml, title: docTitle, wordCount }) {
@@ -1226,7 +1224,7 @@ export default function BlogForm({ blog, allBlogs = [], onSubmit, onCancel }) {
 
                                 <div>
                                     <label style={{ fontWeight: '600', marginBottom: '8px', display: 'block' }}>
-                                        Select up to 3 Related Published Articles
+                                        Select Related Published Articles
                                     </label>
                                     <div style={{ maxHeight: '180px', overflowY: 'auto', border: '1px solid var(--border-color)', borderRadius: '6px', padding: '10px', background: 'var(--bg-input)' }}>
                                         {otherBlogs.length === 0 ? (
@@ -1246,7 +1244,7 @@ export default function BlogForm({ blog, allBlogs = [], onSubmit, onCancel }) {
                                         )}
                                     </div>
                                     <small style={{ color: 'var(--text-muted)', marginTop: '4px', display: 'block' }}>
-                                        {selectedRelatedIds.length} of 3 articles selected. If none selected, the 3 newest articles in the same topic will display automatically.
+                                        {selectedRelatedIds.length} articles selected. If none are selected, the 3 newest articles in the same topic will display automatically.
                                     </small>
                                 </div>
                             </div>

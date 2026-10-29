@@ -10,16 +10,7 @@ router.get('/signins', async (req, res) => {
             .from('user_activity')
             .select('user_id, email, activity_type');
 
-        if (error) {
-            // If the table doesn't exist yet, return 0s instead of blowing up the UI
-            if (error.code === '42P01') { 
-                return res.status(200).json({
-                    total_users: 0,
-                    consultation_users: 0,
-                    ebook_users: 0,
-                    warning: 'Table user_activity does not exist yet. Please run the SQL migration.'
-                });
-            }
+        if (error && error.code !== '42P01') {
             return res.status(500).json({ error: error.message });
         }
 
@@ -28,21 +19,34 @@ router.get('/signins', async (req, res) => {
         const totalUsers = new Set();
 
         (data || []).forEach(row => {
-            // Use user_id if available, otherwise fallback to email for uniqueness
             const identifier = row.user_id || row.email;
             if (!identifier) return;
 
-            // Normalize identifier
             const normalizedId = String(identifier).toLowerCase().trim();
-
             totalUsers.add(normalizedId);
-            
+
             if (row.activity_type === 'ebook') {
                 ebookUsers.add(normalizedId);
             } else if (row.activity_type === 'consultation') {
                 consultationUsers.add(normalizedId);
             }
         });
+
+        // If user_activity has no recorded ebook events, check orders table for paid purchasers
+        if (ebookUsers.size === 0) {
+            const { data: orderUsers } = await supabaseAdmin
+                .from('orders')
+                .select('user_id, email')
+                .in('status', ['paid', 'successful']);
+
+            (orderUsers || []).forEach(o => {
+                const identifier = o.user_id || o.email;
+                if (!identifier) return;
+                const normalizedId = String(identifier).toLowerCase().trim();
+                ebookUsers.add(normalizedId);
+                totalUsers.add(normalizedId);
+            });
+        }
 
         return res.status(200).json({
             total_users: totalUsers.size,
