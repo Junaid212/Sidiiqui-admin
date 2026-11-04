@@ -102,7 +102,8 @@ router.get('/consultations-count', async (req, res) => {
     try {
         const { count, error } = await supabaseAdmin
             .from('consultations')
-            .select('*', { count: 'exact', head: true });
+            .select('*', { count: 'exact', head: true })
+            .not('status', 'eq', 'cancelled');
 
         if (error) {
             return res.status(500).json({ error: error.message });

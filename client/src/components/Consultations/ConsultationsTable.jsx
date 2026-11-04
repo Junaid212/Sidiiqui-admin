@@ -1,4 +1,33 @@
-export default function ConsultationsTable({ consultations, onDelete }) {
+function formatAppointmentDate(value) {
+    if (!value) return '—';
+    const raw = String(value).slice(0, 10);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+        const [year, month, day] = raw.split('-').map(Number);
+        return new Date(year, month - 1, day).toLocaleDateString('en-US', {
+            weekday: 'short',
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric',
+        });
+    }
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? '—' : parsed.toLocaleDateString('en-US', {
+        weekday: 'short',
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+    });
+}
+
+function formatBookedOn(value) {
+    if (!value) return '—';
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime())
+        ? '—'
+        : parsed.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+}
+
+export default function ConsultationsTable({ consultations, onDelete, onStatusChange }) {
     const isEmpty = !consultations || consultations.length === 0;
 
     return (
@@ -41,10 +70,10 @@ export default function ConsultationsTable({ consultations, onDelete }) {
                                     </span>
                                 </td>
                                 <td style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                                    {c.created_at ? new Date(c.created_at).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : '—'}
+                                    {formatBookedOn(c.created_at)}
                                 </td>
                                 <td style={{ fontWeight: '500' }}>
-                                    {(c.selected_date || c.date) ? new Date(c.selected_date || c.date).toLocaleDateString('en-US', { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' }) : '—'}
+                                    {formatAppointmentDate(c.selected_date || c.date)}
                                 </td>
                                 <td>
                                     <span style={{ padding: '4px 8px', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 'bold', backgroundColor: 'rgba(245, 158, 11, 0.1)', color: '#f59e0b', textTransform: 'uppercase' }}>
@@ -58,13 +87,24 @@ export default function ConsultationsTable({ consultations, onDelete }) {
                                     <span className="data-table__notes">{c.message || c.notes || '—'}</span>
                                 </td>
                                 <td>
-                                    <span style={{
-                                        padding: '4px 10px', borderRadius: '12px', fontSize: '0.73rem', fontWeight: '600',
-                                        backgroundColor: c.status === 'booked' ? 'rgba(16, 185, 129, 0.1)' : 'rgba(156, 163, 175, 0.1)',
-                                        color: c.status === 'booked' ? '#10b981' : '#9ca3af',
-                                    }}>
-                                        {c.status || 'unknown'}
-                                    </span>
+                                    <select
+                                        value={c.status || 'booked'}
+                                        onChange={(e) => onStatusChange?.(c.id, e.target.value)}
+                                        style={{
+                                            padding: '4px 8px',
+                                            borderRadius: '12px',
+                                            fontSize: '0.73rem',
+                                            fontWeight: '600',
+                                            border: '1px solid var(--border-color)',
+                                            backgroundColor: c.status === 'cancelled' ? 'rgba(239, 68, 68, 0.08)' : 'rgba(16, 185, 129, 0.08)',
+                                        }}
+                                    >
+                                        <option value="booked">booked</option>
+                                        <option value="confirmed">confirmed</option>
+                                        <option value="completed">completed</option>
+                                        <option value="cancelled">cancelled</option>
+                                        <option value="no-show">no-show</option>
+                                    </select>
                                 </td>
                                 <td>
                                     <span style={{
