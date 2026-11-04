@@ -2,6 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const morgan = require('morgan');
+const fs = require('fs/promises');
 
 const authRoutes = require('./routes/auth');
 const statsRoutes = require('./routes/stats');
@@ -177,13 +178,13 @@ function normalizePublicBlog(b) {
     try {
         const blogSocialsStore = require('./utils/blogSocialsStore');
         socials = blogSocialsStore.getSocials(b.id);
-    } catch (_) {}
+    } catch (_) { }
 
     let enriched = b;
     try {
         const blogSubsectionsStore = require('./utils/blogSubsectionsStore');
         enriched = blogSubsectionsStore.enrichBlogSubsections(b);
-    } catch (_) {}
+    } catch (_) { }
 
     return {
         ...enriched,
@@ -275,7 +276,6 @@ app.get('/api/public/blogs/by-slug/:slug', async (req, res) => {
     try {
         const { supabaseAdmin } = require('./config/supabase');
         const { slug } = req.params;
-        const isPreview = req.query.preview === 'true';
 
         // Fetch all blogs to resolve slug or ID and find related articles
         const { data, error } = await supabaseAdmin
@@ -294,8 +294,8 @@ app.get('/api/public/blogs/by-slug/:slug', async (req, res) => {
             return res.status(404).json({ error: 'Article not found' });
         }
 
-        if (!isPreview && !isBlogPublished(match)) {
-            return res.status(403).json({ error: 'This article is not publicly available.' });
+        if (!isBlogPublished(match)) {
+            return res.status(404).json({ error: 'Article not found' });
         }
 
         const normalizedBlog = normalizePublicBlog(match);
@@ -567,6 +567,112 @@ app.post('/api/public/course-clicks', async (req, res) => {
         return res.status(500).json({ error: 'Internal server error' });
     }
 });
+
+
+// --- Social crawler HTML for individual blog articles ---
+app.get('/blogs/:slug', async (req, res) => {
+    try {
+        const { supabaseAdmin } = require('./config/supabase');
+        const { slug } = req.params;
+
+        // Fetch the article using its slug
+        const { data: blog, error } = await supabaseAdmin
+            .from('blogs')
+            .select('*')
+            .eq('slug', slug)
+            .maybeSingle();
+
+        if (error) {
+            console.error('Social metadata blog fetch error:', error);
+            return res.status(500).send('Unable to load article');
+        }
+
+        if (!blog || !isBlogPublished(blog)) {
+            return res.status(404).send('Article not found');
+        }
+
+        const article = normalizePublicBlog(blog);
+
+        const title = article.seo_title || article.title;
+        const description =
+            article.seo_description ||
+            article.standfirst ||
+            article.summary ||
+            'Editorial insights and strategic perspectives by M. Q. Siddiqui.';
+
+        const image = article.image_url ||
+            'https://siddiqui.digital/assets/images/og-image.jpg';
+
+        const url = `https://siddiqui.digital/blogs/${encodeURIComponent(article.slug)}`;
+
+        // Escape metadata values before inserting into HTML
+        const escapeHtml = (value) =>
+            String(value || '').replace(/[&<>"']/g, (char) => ({
+                '&': '&amp;',
+                '<': '&lt;',
+                '>': '&gt;',
+                '"': '&quot;',
+                "'": '&#39;'
+            })[char]);
+
+        const safeTitle = escapeHtml(title);
+        const safeDescription = escapeHtml(description);
+        const safeImage = escapeHtml(image);
+        const safeUrl = escapeHtml(url);
+
+        const htmlPath =
+            process.env.FRONTEND_INDEX_PATH ||
+            '/var/www/frontend/index.html';
+
+        let html = await fs.readFile(htmlPath, 'utf8');
+
+        const metadata = [
+            `<meta name="description" content="${safeDescription}">`,
+            `<link rel="canonical" href="${safeUrl}">`,
+
+            `<meta property="og:type" content="article">`,
+            `<meta property="og:url" content="${safeUrl}">`,
+            `<meta property="og:title" content="${safeTitle}">`,
+            `<meta property="og:description" content="${safeDescription}">`,
+            `<meta property="og:image" content="${safeImage}">`,
+
+            `<meta name="twitter:card" content="summary_large_image">`,
+            `<meta name="twitter:url" content="${safeUrl}">`,
+            `<meta name="twitter:title" content="${safeTitle}">`,
+            `<meta name="twitter:description" content="${safeDescription}">`,
+            `<meta name="twitter:image" content="${safeImage}">`
+        ].join('\n');
+
+        html = html.replace(
+            /<title>[\s\S]*?<\/title>/i,
+            `<title>${safeTitle}</title>`
+        );
+
+        // Remove existing homepage metadata so crawlers see one article-specific value
+        html = html.replace(
+            /<meta\s+(?:name|property)="(?:description|og:[^"]+|twitter:[^"]+)"[^>]*>\s*/gi,
+            ''
+        );
+
+        html = html.replace(
+            /<link\s+rel="canonical"[^>]*>\s*/gi,
+            ''
+        );
+
+        html = html.replace(
+            /<\/head>/i,
+            `${metadata}\n</head>`
+        );
+
+        res.set('Cache-Control', 'public, max-age=300');
+        res.type('html').send(html);
+
+    } catch (err) {
+        console.error('Social metadata route error:', err);
+        res.status(500).send('Unable to generate article page');
+    }
+});
+
 
 // --- Error Handling ---
 app.use((req, res, next) => {
