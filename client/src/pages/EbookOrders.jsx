@@ -44,8 +44,36 @@ export default function EbookOrders() {
     const totalDownloadsUsed = orders.reduce((sum, o) => sum + (Number(o.download_count) || 0), 0);
     const totalRefunded = orders.filter(o => o.status === 'refunded').length;
 
+    // The CSV is built in the browser from the orders on screen (so the search and status filter apply) and downloaded as a file.
+    // It used to open a localhost address that does not exist on the live server.
+    function csvCell(value) {
+        let s = value === null || value === undefined ? '' : String(value);
+        if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`; // a spreadsheet must never run a cell as a formula
+        return `"${s.replace(/"/g, '""')}"`;
+    }
+
     function handleExportCsv() {
-        window.open('http://localhost:5001/api/orders/export-csv', '_blank');
+        if (!filteredOrders.length) { toast.error('There are no orders to export.'); return; }
+        const header = ['Order #', 'Customer', 'Email', 'Product', 'Purchased (UTC)', 'Currency', 'Amount', 'Status', 'Downloads used', 'Download limit'];
+        const rows = filteredOrders.map((o) => [
+            o.order_number || `ORD-${String(o.id || '').substring(0, 8).toUpperCase()}`,
+            o.customer_name || '',
+            o.user_email || o.email || '',
+            o.book_name || o.ebook_title || 'Marketing Reclassified',
+            o.created_at ? new Date(o.created_at).toISOString().replace('T', ' ').slice(0, 19) : '',
+            o.currency || 'USD',
+            Number(o.amount || 0).toFixed(2),
+            o.status || '',
+            o.download_count || 0,
+            o.download_limit || 3,
+        ]);
+        const csv = '﻿' + [header, ...rows].map((r) => r.map(csvCell).join(',')).join('\r\n');
+        const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' }));
+        const a = document.createElement('a');
+        a.href = url; a.download = `ebook-orders-${new Date().toISOString().slice(0, 10)}.csv`;
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        toast.success(`Exported ${filteredOrders.length} order${filteredOrders.length === 1 ? '' : 's'}.`);
     }
 
     if (loading) {
