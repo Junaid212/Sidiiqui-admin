@@ -1,58 +1,17 @@
 [
   {
-    "id": "coup_1793685621703_z719f",
-    "code": "LUCKY",
-    "discount_percentage": 100,
-    "discount_type": "percentage",
-    "description": "lucky100",
-    "min_order_amount": 187,
-    "max_uses": 1,
-    "times_used": 0,
-    "is_active": true,
-    "expires_at": "2026-11-04T00:00:00.000Z",
-    "created_at": "2026-11-03T06:00:21.703Z",
-    "updated_at": "2026-11-03T06:04:06.062Z"
-  },
-  {
-    "id": "coup_1790580545401_mslev",
-    "code": "PROMO312",
-    "discount_percentage": 35,
-    "discount_type": "percentage",
-    "description": "E2E Test coupon — 35% discount on all books",
-    "min_order_amount": 0,
-    "max_uses": null,
-    "times_used": 0,
-    "is_active": true,
-    "expires_at": null,
-    "created_at": "2026-09-28T07:29:05.401Z",
-    "updated_at": "2026-09-28T07:29:05.401Z"
-  },
-  {
-    "id": "coup_1790580494749_5g7cx",
-    "code": "PROMO507",
-    "discount_percentage": 35,
-    "discount_type": "percentage",
-    "description": "E2E Test coupon — 35% discount on all books",
-    "min_order_amount": 0,
-    "max_uses": null,
-    "times_used": 0,
-    "is_active": true,
-    "expires_at": null,
-    "created_at": "2026-09-28T07:28:14.749Z",
-    "updated_at": "2026-09-28T07:28:14.749Z"
-  },
-  {
     "id": "coup_launch20",
-    "code": "LAUNCH20",
-    "discount_percentage": 20,
+    "code": "LAUNCH30",
+    "discount_percentage": 40,
     "discount_type": "percentage",
-    "description": "Launch promotion — 20% off all publications",
-    "min_order_amount": 0,
-    "max_uses": null,
+    "description": "Launch promotion — 40% off all publications",
+    "min_order_amount": 1,
+    "max_uses": 100,
     "times_used": 14,
     "is_active": true,
-    "expires_at": null,
-    "created_at": "2026-09-28T07:11:50.340Z"
+    "expires_at": "2026-11-30T00:00:00.000Z",
+    "created_at": "2026-09-28T07:11:50.340Z",
+    "updated_at": "2026-11-11T10:34:32.322Z"
   },
   {
     "id": "coup_welcome10",
@@ -63,9 +22,10 @@
     "min_order_amount": 0,
     "max_uses": null,
     "times_used": 8,
-    "is_active": true,
+    "is_active": false,
     "expires_at": null,
-    "created_at": "2026-09-28T07:11:50.386Z"
+    "created_at": "2026-09-28T07:11:50.386Z",
+    "updated_at": "2026-11-11T10:42:55.937Z"
   },
   {
     "id": "coup_reader15",
@@ -76,8 +36,9 @@
     "min_order_amount": 0,
     "max_uses": 100,
     "times_used": 23,
-    "is_active": true,
+    "is_active": false,
     "expires_at": null,
-    "created_at": "2026-09-28T07:11:50.386Z"
+    "created_at": "2026-09-28T07:11:50.386Z",
+    "updated_at": "2026-11-11T10:42:52.970Z"
   }
 ]

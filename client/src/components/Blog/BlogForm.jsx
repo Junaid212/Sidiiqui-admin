@@ -5,6 +5,8 @@ import DocxImporter from './DocxImporter';
 import ZipImporterModal from './ZipImporterModal';
 import ErrorBoundary from '../Common/ErrorBoundary';
 import toast from 'react-hot-toast';
+import { createObjectUrlRegistry } from '../../utils/objectUrlRegistry';
+import { hasJpegSignature, bytesHaveJpegSignature } from '../../utils/jpegSignature';
 
 const REFERENCE_CATEGORIES = [
     'SID Philosophy',
@@ -50,11 +52,16 @@ export default function BlogForm({ blog, allBlogs = [], onSubmit, onCancel }) {
     const [pullQuotePosition, setPullQuotePosition] = useState(1);
     const [concluding_insight, setConcludingInsight] = useState('');
 
-    // Media
+    // Media - Article cover image
     const [image, setImage] = useState(null);
     const [preview, setPreview] = useState(null);
     const [image_caption, setImageCaption] = useState('');
     const [image_alt, setImageAlt] = useState('');
+
+    // Media - Social sharing image (separate from cover)
+    const [socialImage, setSocialImage] = useState(null);
+    const [socialImagePreview, setSocialImagePreview] = useState(null);
+    const [removeSocialImage, setRemoveSocialImage] = useState(false); // ask the server to delete the saved social image
 
     // Marketing Reclassified relationship
     const [related_to_book, setRelatedToBook] = useState(false);
@@ -82,6 +89,16 @@ export default function BlogForm({ blog, allBlogs = [], onSubmit, onCancel }) {
     const [submitting, setSubmitting] = useState(false);
 
     const dropdownRef = useRef(null);
+
+    // Tracks every temporary blob: preview URL this form creates, so none leak when an image is
+    // replaced, removed, another article is loaded, or the form closes.
+    const objectUrls = useRef(null);
+    if (objectUrls.current === null) objectUrls.current = createObjectUrlRegistry();
+    useEffect(() => () => objectUrls.current.revokeAll(), []);
+
+    // Always points at the current social preview URL, so the ZIP "Load" handler never works with a stale value
+    const socialPreviewRef = useRef(null);
+    socialPreviewRef.current = socialImagePreview;
 
     // Auto-derive slug from title if user hasn't typed a custom slug
     function handleTitleChange(val) {
@@ -168,6 +185,9 @@ export default function BlogForm({ blog, allBlogs = [], onSubmit, onCancel }) {
 
     // Populate data on mount/edit
     useEffect(() => {
+        // Switching article: release previews created for the previous one
+        objectUrls.current.revokeAll();
+
         if (blog) {
             setTitle(blog.title || '');
             setSlug(blog.slug || deriveSlug(blog.title || ''));
@@ -222,6 +242,9 @@ export default function BlogForm({ blog, allBlogs = [], onSubmit, onCancel }) {
             setConcludingInsight(blog.concluding_insight || '');
 
             setPreview(blog.image_url || null);
+            setSocialImage(null);
+            setSocialImagePreview(blog.social_image_url || null);
+            setRemoveSocialImage(false);
             setImageCaption(blog.image_caption || '');
             setImageAlt(blog.image_alt || '');
 
@@ -259,6 +282,9 @@ export default function BlogForm({ blog, allBlogs = [], onSubmit, onCancel }) {
             setLinkedinUrl('');
             setInstagramUrl('');
             setFacebookUrl('');
+            setSocialImage(null);
+            setSocialImagePreview(null);
+            setRemoveSocialImage(false);
         }
     }, [blog]);
 
@@ -281,9 +307,93 @@ export default function BlogForm({ blog, allBlogs = [], onSubmit, onCancel }) {
                 e.target.value = '';
                 return;
             }
+            objectUrls.current.revoke(preview);
             setImage(file);
-            setPreview(URL.createObjectURL(file));
+            setPreview(objectUrls.current.create(file));
         }
+    }
+
+    // Mirrors the server-side rules (server is authoritative): JPG only, <= 2 MB,
+    // 1200-2400px wide, landscape ~1.91:1. Checked here so users get instant feedback.
+    const SOCIAL_MAX_BYTES = 2 * 1024 * 1024;
+
+    function revokeSocialObjectUrl() {
+        objectUrls.current.revoke(socialImagePreview);
+    }
+
+    function handleSocialImageChange(e) {
+        const input = e.target;
+        const file = input.files?.[0];
+        if (!file) return;
+
+        const reject = (message) => {
+            toast.error(message);
+            input.value = '';
+        };
+
+        const lowerName = (file.name || '').toLowerCase();
+        if (file.type !== 'image/jpeg' || !(lowerName.endsWith('.jpg') || lowerName.endsWith('.jpeg'))) {
+            reject('Please upload a JPG/JPEG image.');
+            return;
+        }
+
+        if (file.size > SOCIAL_MAX_BYTES) {
+            reject('Social image must be 2 MB or smaller.');
+            return;
+        }
+
+        // Real JPEG check on the file's actual bytes. The MIME type and extension come from the file NAME,
+        // so a PNG renamed to .jpg would otherwise pass (and even decodes fine in an <img>).
+        // The server re-checks everything and stays the final authority.
+        hasJpegSignature(file).then((isRealJpeg) => {
+            if (!isRealJpeg) {
+                reject('This file is not a real JPEG image: its contents do not match the .jpg name (it may be a PNG or another format that was renamed). Please export it as a JPG and try again.');
+                return;
+            }
+
+            const objectUrl = objectUrls.current.create(file);
+            const probe = new Image();
+            probe.onload = () => {
+                const w = probe.naturalWidth;
+                const h = probe.naturalHeight;
+                const ratio = w / h;
+                if (w < 1200 || w > 2400 || ratio < 1.85 || ratio > 1.97) {
+                    objectUrls.current.revoke(objectUrl);
+                    reject(`Image is ${w} × ${h}px. Use about 1200 × 627 (landscape 1.91:1, 1200–2400px wide).`);
+                    return;
+                }
+                revokeSocialObjectUrl();
+                setSocialImage(file);
+                setSocialImagePreview(objectUrl);
+                setRemoveSocialImage(false);
+                setIsDirty(true);
+            };
+            probe.onerror = () => {
+                objectUrls.current.revoke(objectUrl);
+                reject('That file could not be read as an image.');
+            };
+            probe.src = objectUrl;
+        }).catch(() => reject('That file could not be read. Please choose another image.'));
+    }
+
+    // If a new file is pending, discard it and fall back to the saved image.
+    // Otherwise remove the saved image (the cover image is used for social previews instead).
+    function handleRemoveSocialImage() {
+        revokeSocialObjectUrl();
+        const fileInput = document.getElementById('blog-social-image');
+        if (fileInput) fileInput.value = '';
+
+        const savedUrl = blog && blog.social_image_url ? blog.social_image_url : null;
+        if (socialImage && savedUrl) {
+            setSocialImage(null);
+            setSocialImagePreview(savedUrl);
+            setRemoveSocialImage(false);
+        } else {
+            setSocialImage(null);
+            setSocialImagePreview(null);
+            setRemoveSocialImage(!!savedUrl);
+        }
+        setIsDirty(true);
     }
 
     function toggleCategory(cat) {
@@ -348,6 +458,34 @@ export default function BlogForm({ blog, allBlogs = [], onSubmit, onCancel }) {
         if (article.concluding_insight) setConcludingInsight(article.concluding_insight);
         if (article.image_url) {
             setPreview(article.image_url);
+        }
+        // Social sharing image: ALWAYS start from this form's own baseline so nothing carries over from a
+        // previously loaded article: no pending file, the saved image of the blog being edited (if any),
+        // and no removal request. Temporary preview URLs are released.
+        objectUrls.current.revoke(socialPreviewRef.current);
+        const savedSocialUrl = blog && blog.social_image_url ? blog.social_image_url : null;
+        setSocialImage(null);
+        setSocialImagePreview(savedSocialUrl);
+        setRemoveSocialImage(false);
+
+        // ...then load ONLY what the article being loaded actually has.
+        if (article.social_image_url && typeof article.social_image_url === 'string') {
+            const dataMatch = article.social_image_url.match(/^data:image\/jpeg;base64,(.+)$/);
+            if (dataMatch) {
+                try {
+                    const bin = atob(dataMatch[1]);
+                    const bytes = new Uint8Array(bin.length);
+                    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+                    if (!bytesHaveJpegSignature(bytes)) throw new Error('not a JPEG');
+                    const zipFile = new File([bytes], `${article.slug || 'social-image'}-social.jpg`, { type: 'image/jpeg' });
+                    setSocialImage(zipFile);
+                    setSocialImagePreview(objectUrls.current.create(zipFile));
+                } catch {
+                    toast.error('Could not read the social image from the ZIP.');
+                }
+            } else if (/^https?:\/\//i.test(article.social_image_url)) {
+                setSocialImagePreview(article.social_image_url);
+            }
         }
         if (article.status) setStatus(article.status);
         if (article.scheduled_for) setScheduledFor(article.scheduled_for);
@@ -433,6 +571,10 @@ export default function BlogForm({ blog, allBlogs = [], onSubmit, onCancel }) {
                 image_path: blog ? blog.image_path : null,
                 image_caption: image_caption.trim(),
                 image_alt: image_alt.trim(),
+
+                socialImageFile: socialImage,
+                social_image_url: socialImagePreview,
+                removeSocialImage,
 
                 related_to_book,
                 book_concept: book_concept.trim(),
@@ -1313,36 +1455,120 @@ export default function BlogForm({ blog, allBlogs = [], onSubmit, onCancel }) {
                             </div>
 
                             {/* SECTION 6: SEO METADATA */}
-                            <div style={{ background: 'var(--bg-card)', padding: '20px', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
-                                <h3 style={{ fontSize: '1.05rem', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--accent-primary)' }}>
-                                    🔍 6. Search Engine Optimization (SEO)
-                                </h3>
+<div style={{
+    background: 'var(--bg-card)',
+    padding: '20px',
+    borderRadius: '8px',
+    border: '1px solid var(--border-color)'
+}}>
+    <h3 style={{
+        fontSize: '1.05rem',
+        marginBottom: '16px',
+        display: 'flex',
+        alignItems: 'center',
+        gap: '8px',
+        color: 'var(--accent-primary)'
+    }}>
+        🔍 6. Search Engine Optimization (SEO)
+    </h3>
 
-                                <div className="form-group" style={{ marginBottom: '14px' }}>
-                                    <label htmlFor="blog-seo-title">SEO Title (Browser & Search Snippet)</label>
-                                    <input
-                                        id="blog-seo-title"
-                                        type="text"
-                                        value={seo_title}
-                                        onChange={(e) => setSeoTitle(e.target.value)}
-                                        placeholder={title || 'e.g. Why Strategic Marketing Must Challenge Assumptions | Siddiqui.digital'}
-                                        style={inputStyle}
-                                    />
-                                </div>
+    <div className="form-group" style={{ marginBottom: '14px' }}>
+        <label htmlFor="blog-seo-title">
+            SEO Title (Browser & Search Snippet)
+        </label>
+        <input
+            id="blog-seo-title"
+            type="text"
+            value={seo_title}
+            onChange={(e) => setSeoTitle(e.target.value)}
+            placeholder={title || 'e.g. Why Strategic Marketing Must Challenge Assumptions | Siddiqui.digital'}
+            style={inputStyle}
+        />
+    </div>
 
-                                <div className="form-group">
-                                    <label htmlFor="blog-seo-desc">Meta Description (150–160 characters recommended)</label>
-                                    <textarea
-                                        id="blog-seo-desc"
-                                        rows={2}
-                                        value={seo_description}
-                                        onChange={(e) => setSeoDescription(e.target.value)}
-                                        placeholder={summary || 'A compelling summary for search results...'}
-                                        style={inputStyle}
-                                    />
-                                    <small style={{ color: 'var(--text-muted)' }}>{seo_description.length} characters</small>
-                                </div>
-                            </div>
+    <div className="form-group" style={{ marginBottom: '20px' }}>
+        <label htmlFor="blog-seo-desc">
+            Meta Description (150–160 characters recommended)
+        </label>
+        <textarea
+            id="blog-seo-desc"
+            rows={2}
+            value={seo_description}
+            onChange={(e) => setSeoDescription(e.target.value)}
+            placeholder={summary || 'A compelling summary for search results...'}
+            style={inputStyle}
+        />
+        <small style={{ color: 'var(--text-muted)' }}>
+            {seo_description.length} characters
+        </small>
+    </div>
+
+    {/* SOCIAL SHARING IMAGE */}
+    <div className="form-group">
+        <label htmlFor="blog-social-image">
+            Social Share Image (1200 × 627, JPG, max 2 MB)
+        </label>
+
+        <input
+            id="blog-social-image"
+            type="file"
+            accept="image/jpeg,.jpg,.jpeg"
+            onChange={handleSocialImageChange}
+            style={inputStyle}
+        />
+
+        <small style={{
+            display: 'block',
+            color: 'var(--text-muted)',
+            marginTop: '6px'
+        }}>
+            Optional. JPG only, recommended size 1200 × 627 pixels, maximum 2 MB.
+            If no image is uploaded, the article cover image will be used for social previews.
+        </small>
+
+        {socialImagePreview && (
+            <div style={{ marginTop: '14px' }}>
+                <p style={{
+                    fontSize: '0.9rem',
+                    marginBottom: '8px',
+                    color: 'var(--text-muted)'
+                }}>
+                    Social sharing image preview
+                </p>
+
+                <img
+                    src={socialImagePreview}
+                    alt="Social sharing image preview"
+                    style={{
+                        width: '100%',
+                        maxWidth: '480px',
+                        aspectRatio: '1200 / 627',
+                        objectFit: 'cover',
+                        borderRadius: '6px',
+                        border: '1px solid var(--border-color)'
+                    }}
+                />
+
+                <button
+                    type="button"
+                    className="btn btn--outline btn--sm"
+                    style={{ marginTop: '10px' }}
+                    onClick={handleRemoveSocialImage}
+                >
+                    {socialImage && blog && blog.social_image_url
+                        ? 'Discard selected image (keep saved one)'
+                        : 'Remove social image'}
+                </button>
+            </div>
+        )}
+
+        {removeSocialImage && !socialImagePreview && (
+            <small style={{ display: 'block', color: 'var(--text-muted)', marginTop: '10px' }}>
+                The saved social image will be removed when you save. The article cover image will be used for social previews instead.
+            </small>
+        )}
+    </div>
+</div>
 
                             {/* SECTION 7: SOCIAL MEDIA LINKS */}
                             <div style={{ background: 'var(--bg-card)', padding: '20px', borderRadius: '8px', border: '1px solid var(--border-color)' }}>

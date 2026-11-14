@@ -85,8 +85,8 @@ export default function EbookOrders() {
                     <h3 style={{ fontSize: '1.75rem', fontWeight: 800, color: '#fff', margin: '6px 0 0' }}>{totalOrders}</h3>
                 </div>
                 <div style={{ background: '#1e1e2e', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '12px', padding: '20px' }}>
-                    <span style={{ fontSize: '0.8rem', color: '#a1a1aa', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Verified Sales (AED)</span>
-                    <h3 style={{ fontSize: '1.75rem', fontWeight: 800, color: '#10b981', margin: '6px 0 0' }}>AED {totalRevenue.toFixed(2)}</h3>
+                    <span style={{ fontSize: '0.8rem', color: '#a1a1aa', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Verified Sales (USD)</span>
+                    <h3 style={{ fontSize: '1.75rem', fontWeight: 800, color: '#10b981', margin: '6px 0 0' }}>USD {totalRevenue.toFixed(2)}</h3>
                 </div>
                 <div style={{ background: '#1e1e2e', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '12px', padding: '20px' }}>
                     <span style={{ fontSize: '0.8rem', color: '#a1a1aa', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Downloads Used</span>

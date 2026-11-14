@@ -19,7 +19,12 @@ const contactMessagesRoutes = require('./routes/contactMessages');
 const questionnaireRoutes = require('./routes/questionnaire');
 const couponsRoutes = require('./routes/coupons');
 const askSidRoutes = require('./routes/askSid');
-const { requireAuth } = require('./middleware/auth');
+const readingRoutes = require('./routes/reading');
+const entitlementRoutes = require('./routes/entitlements');
+const companionFileRoutes = require('./routes/companionFiles');
+const offerBannerRoutes = require('./routes/offerBanner');
+const { requireAdmin } = require('./middleware/auth');
+const blogPrerender = require('./utils/blogPrerender');
 
 const app = express();
 const PORT = process.env.PORT || 5001;
@@ -54,7 +59,13 @@ const corsOptions = {
 app.options('*', cors(corsOptions));
 app.use(cors(corsOptions));
 
-app.use(express.json());
+// Default JSON limit (100kb) for every route except the ZIP commit-batch route, which carries
+// base64 image previews. That route parses its own body (with a larger limit) AFTER requireAdmin,
+// so only authenticated admins can send large payloads.
+const defaultJsonParser = express.json();
+app.use((req, res, next) =>
+    req.path === '/api/blogs/import-zip/commit-batch' || req.path.startsWith('/api/reading/') ? next() : defaultJsonParser(req, res, next)
+);
 app.use(express.urlencoded({ extended: true }));
 app.use(morgan('dev'));
 
@@ -68,20 +79,36 @@ app.get('/api/health', (req, res) => {
 });
 
 // --- Routes ---
+// /api/auth handles its own authentication (sign-in, password reset, /me) and has no public sign-up.
 app.use('/api/auth', authRoutes);
-app.use('/api/stats', requireAuth, statsRoutes);
-app.use('/api/consultations', requireAuth, consultationsRoutes);
-app.use('/api/blogs', requireAuth, blogsRoutes);
-app.use('/api/comments', requireAuth, commentsRoutes);
-app.use('/api/orders', requireAuth, ordersRoutes);
-app.use('/api/products', requireAuth, productsRoutes);
-app.use('/api/course-clicks-details', requireAuth, courseClicksRoutes);
-app.use('/api/sign-ins-details', requireAuth, signInsRoutes);
-app.use('/api/admin/metrics', requireAuth, metricsRoutes);
-app.use('/api/contact-messages', requireAuth, contactMessagesRoutes);
-app.use('/api/questionnaire', requireAuth, questionnaireRoutes);
-app.use('/api/coupons', requireAuth, couponsRoutes);
-app.use('/api/ask-sid', requireAuth, askSidRoutes);
+
+// Every dashboard API below requires an ADMINISTRATOR (valid session + app_metadata.role === 'admin').
+// A valid customer session is not enough: customers share this Supabase project.
+app.use('/api/stats', requireAdmin, statsRoutes);
+app.use('/api/consultations', requireAdmin, consultationsRoutes);
+app.use('/api/blogs', requireAdmin, blogsRoutes);
+app.use('/api/comments', requireAdmin, commentsRoutes);
+app.use('/api/orders', requireAdmin, ordersRoutes);
+app.use('/api/products', requireAdmin, productsRoutes);
+app.use('/api/course-clicks-details', requireAdmin, courseClicksRoutes);
+app.use('/api/sign-ins-details', requireAdmin, signInsRoutes);
+app.use('/api/admin/metrics', requireAdmin, metricsRoutes);
+app.use('/api/contact-messages', requireAdmin, contactMessagesRoutes);
+app.use('/api/questionnaire', requireAdmin, questionnaireRoutes);
+app.use('/api/coupons', requireAdmin, couponsRoutes);
+app.use('/api/ask-sid', requireAdmin, askSidRoutes);
+// Online Reading content, Digital Companion customers / entitlements, Companion PDF files (administrators only)
+app.use('/api/reading', requireAdmin, readingRoutes);
+app.use('/api/entitlements', requireAdmin, entitlementRoutes);
+app.use('/api/companion-files', requireAdmin, companionFileRoutes);
+// Offer label (slim banner on the Marketing Reclassified landing page)
+app.use('/api/offer-banner', requireAdmin, offerBannerRoutes);
+
+// Public: the website reads the offer label
+app.get('/api/public/offer-banner', (req, res) => {
+    res.set('Cache-Control', 'public, max-age=60');
+    return res.json(require('./utils/offerBannerStore').publicView());
+});
 
 // Public route for Ask SID config
 app.get('/api/public/ask-sid-config', async (req, res) => {
@@ -101,7 +128,9 @@ app.get('/api/public/ask-sid-config', async (req, res) => {
         return res.status(500).json({ error: 'Failed to load Ask SID configuration' });
     }
 });
-app.use('/api/public/coupons', couponsRoutes);
+// Only coupon VALIDATION is public. The full coupons router (list / create / update / delete) was
+// previously mounted here with no authentication at all, so it is NOT exposed publicly any more.
+app.use('/api/public/coupons', couponsRoutes.publicRouter);
 
 app.use('/api/public/consultations', publicConsultationsRoutes);
 
@@ -472,7 +501,7 @@ function normalizePublicProduct(p, idx = 0) {
         short_description: p.description ? p.description.substring(0, 140) + '...' : '',
         description: p.description || '',
         price: Number(p.price) || 49.00,
-        currency: p.currency || 'AED',
+        currency: p.currency || 'USD',
         format: p.format || 'PDF',
         cover_image: p.cover_image || '/assets/images/img/30.webp',
         file_path: p.file_path || 'ebooks/marketing-reclassified.pdf',
@@ -593,76 +622,16 @@ app.get('/blogs/:slug', async (req, res) => {
 
         const article = normalizePublicBlog(blog);
 
-        const title = article.seo_title || article.title;
-        const description =
-            article.seo_description ||
-            article.standfirst ||
-            article.summary ||
-            'Editorial insights and strategic perspectives by M. Q. Siddiqui.';
-
-        const image = article.image_url ||
-            'https://siddiqui.digital/assets/images/og-image.jpg';
-
-        const url = `https://siddiqui.digital/blogs/${encodeURIComponent(article.slug)}`;
-
-        // Escape metadata values before inserting into HTML
-        const escapeHtml = (value) =>
-            String(value || '').replace(/[&<>"']/g, (char) => ({
-                '&': '&amp;',
-                '<': '&lt;',
-                '>': '&gt;',
-                '"': '&quot;',
-                "'": '&#39;'
-            })[char]);
-
-        const safeTitle = escapeHtml(title);
-        const safeDescription = escapeHtml(description);
-        const safeImage = escapeHtml(image);
-        const safeUrl = escapeHtml(url);
-
         const htmlPath =
             process.env.FRONTEND_INDEX_PATH ||
             '/var/www/frontend/index.html';
 
-        let html = await fs.readFile(htmlPath, 'utf8');
+        const template = await fs.readFile(htmlPath, 'utf8');
 
-        const metadata = [
-            `<meta name="description" content="${safeDescription}">`,
-            `<link rel="canonical" href="${safeUrl}">`,
-
-            `<meta property="og:type" content="article">`,
-            `<meta property="og:url" content="${safeUrl}">`,
-            `<meta property="og:title" content="${safeTitle}">`,
-            `<meta property="og:description" content="${safeDescription}">`,
-            `<meta property="og:image" content="${safeImage}">`,
-
-            `<meta name="twitter:card" content="summary_large_image">`,
-            `<meta name="twitter:url" content="${safeUrl}">`,
-            `<meta name="twitter:title" content="${safeTitle}">`,
-            `<meta name="twitter:description" content="${safeDescription}">`,
-            `<meta name="twitter:image" content="${safeImage}">`
-        ].join('\n');
-
-        html = html.replace(
-            /<title>[\s\S]*?<\/title>/i,
-            `<title>${safeTitle}</title>`
-        );
-
-        // Remove existing homepage metadata so crawlers see one article-specific value
-        html = html.replace(
-            /<meta\s+(?:name|property)="(?:description|og:[^"]+|twitter:[^"]+)"[^>]*>\s*/gi,
-            ''
-        );
-
-        html = html.replace(
-            /<link\s+rel="canonical"[^>]*>\s*/gi,
-            ''
-        );
-
-        html = html.replace(
-            /<\/head>/i,
-            `${metadata}\n</head>`
-        );
+        // Same renderer as the prerendered pages and the build script, so every route produces identical
+        // metadata: seo_title (+ site suffix), description chain, canonical https://siddiqui.digital/blogs/<slug>,
+        // og:/twitter: tags, and the image priority social_image_url -> image_url -> website default.
+        const html = await blogPrerender.renderArticleOnDemand(template, article);
 
         res.set('Cache-Control', 'public, max-age=300');
         res.type('html').send(html);
@@ -695,6 +664,12 @@ app.use((err, req, res, next) => {
     }
 
     if (err.code === 'LIMIT_FILE_SIZE' || (err.message && err.message.includes('File too large'))) {
+        if (err.field === 'social_image') {
+            return res.status(400).json({ error: 'Social image is too large. Maximum allowed size is 2 MB.' });
+        }
+        if (err.field === 'zipFile') {
+            return res.status(400).json({ error: 'ZIP file is too large. Maximum allowed size is 60 MB.' });
+        }
         return res.status(400).json({ error: 'Image file is too large. Maximum allowed size is 5MB.' });
     }
 
@@ -705,4 +680,13 @@ app.use((err, req, res, next) => {
 app.listen(PORT, () => {
     console.log(`🚀 Server running on http://localhost:${PORT}`);
     console.log(`📋 Health check: http://localhost:${PORT}/api/health`);
+
+    // Keeps the public site's prerendered article pages in step with the database (retries failures,
+    // publishes scheduled articles when due). Does nothing unless PUBLIC_SITE_ROOT is configured.
+    try {
+        const { supabaseAdmin } = require('./config/supabase');
+        blogPrerender.startSweep(supabaseAdmin, { minutes: Number(process.env.PRERENDER_SWEEP_MINUTES ?? 15) });
+    } catch (err) {
+        console.error('[prerender] could not start the sweep:', err && err.message);
+    }
 });

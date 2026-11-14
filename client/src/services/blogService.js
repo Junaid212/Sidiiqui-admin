@@ -1,5 +1,6 @@
 import { apiRequest } from '../config/api';
 import { supabase } from '../config/supabase';
+import { safeWarnings, attachWarnings } from '../utils/serverWarnings';
 
 /**
  * Fetch all blogs safely via admin backend
@@ -60,50 +61,65 @@ function formatTopic2(val) {
 /**
  * Create a new Blog record via admin backend.
  */
+
 export async function createBlog(blogData) {
     const formattedTopic2 = formatTopic2(blogData.topic2);
 
-    if (blogData.imageFile) {
+    if (blogData.imageFile || blogData.socialImageFile) {
         const fd = new FormData();
-        fd.append('image', blogData.imageFile);
+
+        if (blogData.imageFile) {
+            fd.append('image', blogData.imageFile);
+        }
+
+        if (blogData.socialImageFile) {
+            fd.append('social_image', blogData.socialImageFile);
+        }
+
         fd.append('title', blogData.title || '');
         fd.append('content', blogData.content || '');
         fd.append('topic', blogData.topic || '');
-        fd.append('topic2', formattedTopic2);
+        fd.append('topic2', formattedTopic2 || '');
+
         if (blogData.published_date) fd.append('published_date', blogData.published_date);
         if (blogData.title2) fd.append('title2', blogData.title2);
         if (blogData.content2) fd.append('content2', blogData.content2);
         if (blogData.sub_sections) fd.append('sub_sections', JSON.stringify(blogData.sub_sections));
         if (blogData.pull_quote_position !== undefined) fd.append('pull_quote_position', String(blogData.pull_quote_position));
 
-        // Editorial fields
-        if (blogData.slug) fd.append('slug', blogData.slug);
-        if (blogData.summary) fd.append('summary', blogData.summary);
-        if (blogData.standfirst) fd.append('standfirst', blogData.standfirst);
-        if (blogData.reading_time) fd.append('reading_time', blogData.reading_time);
-        if (blogData.author_byline) fd.append('author_byline', blogData.author_byline);
-        if (blogData.image_caption) fd.append('image_caption', blogData.image_caption);
-        if (blogData.image_alt) fd.append('image_alt', blogData.image_alt);
-        if (blogData.pull_quote) fd.append('pull_quote', blogData.pull_quote);
-        if (blogData.pull_quote_author) fd.append('pull_quote_author', blogData.pull_quote_author);
-        if (blogData.concluding_insight) fd.append('concluding_insight', blogData.concluding_insight);
-        if (blogData.is_featured !== undefined) fd.append('is_featured', String(blogData.is_featured));
-        if (blogData.status) fd.append('status', blogData.status);
-        if (blogData.scheduled_for) fd.append('scheduled_for', blogData.scheduled_for);
-        if (blogData.related_to_book !== undefined) fd.append('related_to_book', String(blogData.related_to_book));
-        if (blogData.book_concept) fd.append('book_concept', blogData.book_concept);
-        if (blogData.related_blog_ids) fd.append('related_blog_ids', JSON.stringify(blogData.related_blog_ids));
-        if (blogData.seo_title) fd.append('seo_title', blogData.seo_title);
-        if (blogData.seo_description) fd.append('seo_description', blogData.seo_description);
-        if (blogData.linkedin_url !== undefined) fd.append('linkedin_url', blogData.linkedin_url || '');
-        if (blogData.instagram_url !== undefined) fd.append('instagram_url', blogData.instagram_url || '');
-        if (blogData.facebook_url !== undefined) fd.append('facebook_url', blogData.facebook_url || '');
+        const fields = [
+            'slug', 'summary', 'standfirst', 'reading_time', 'author_byline',
+            'image_caption', 'image_alt', 'pull_quote', 'pull_quote_author',
+            'concluding_insight', 'status', 'scheduled_for', 'book_concept',
+            'seo_title', 'seo_description'
+        ];
 
-        const data = await apiRequest('/blogs', { method: 'POST', body: fd });
-        return data.blog;
+        fields.forEach(field => {
+            if (blogData[field] !== undefined && blogData[field] !== null) {
+                fd.append(field, blogData[field]);
+            }
+        });
+
+        if (blogData.is_featured !== undefined) fd.append('is_featured', String(blogData.is_featured));
+        if (blogData.related_to_book !== undefined) fd.append('related_to_book', String(blogData.related_to_book));
+        if (blogData.related_blog_ids) fd.append('related_blog_ids', JSON.stringify(blogData.related_blog_ids));
+
+        if (blogData.social_image_url) fd.append('social_image_url', blogData.social_image_url);
+
+        ['linkedin_url', 'instagram_url', 'facebook_url'].forEach(field => {
+            if (blogData[field] !== undefined) {
+                fd.append(field, blogData[field] || '');
+            }
+        });
+
+        const data = await apiRequest('/blogs', {
+            method: 'POST',
+            body: fd
+        });
+
+        return attachWarnings(data.blog, safeWarnings(data));
     }
 
-    // No new file — JSON only
     const data = await apiRequest('/blogs', {
         method: 'POST',
         body: JSON.stringify({
@@ -118,6 +134,7 @@ export async function createBlog(blogData) {
             pull_quote_position: blogData.pull_quote_position !== undefined ? Number(blogData.pull_quote_position) : 1,
             image_url: blogData.image_url,
             image_path: blogData.image_path,
+            social_image_url: blogData.social_image_url || null,
             slug: blogData.slug,
             summary: blogData.summary,
             standfirst: blogData.standfirst,
@@ -141,56 +158,72 @@ export async function createBlog(blogData) {
             facebook_url: blogData.facebook_url || null,
         }),
     });
-    return data.blog;
+
+    return attachWarnings(data.blog, safeWarnings(data));
 }
 
-/**
- * Update an existing Blog record via admin backend.
- */
 export async function updateBlog(id, blogData) {
     const formattedTopic2 = formatTopic2(blogData.topic2);
 
-    if (blogData.imageFile) {
+    if (blogData.imageFile || blogData.socialImageFile) {
         const fd = new FormData();
-        fd.append('image', blogData.imageFile);
+
+        if (blogData.removeSocialImage) {
+            fd.append('remove_social_image', 'true');
+        }
+
+        if (blogData.imageFile) {
+            fd.append('image', blogData.imageFile);
+        }
+
+        if (blogData.socialImageFile) {
+            fd.append('social_image', blogData.socialImageFile);
+        }
+
         fd.append('title', blogData.title || '');
         fd.append('content', blogData.content || '');
         fd.append('topic', blogData.topic || '');
-        fd.append('topic2', formattedTopic2);
+        fd.append('topic2', formattedTopic2 || '');
+
         if (blogData.published_date) fd.append('published_date', blogData.published_date);
         if (blogData.title2) fd.append('title2', blogData.title2);
         if (blogData.content2) fd.append('content2', blogData.content2);
         if (blogData.sub_sections !== undefined) fd.append('sub_sections', JSON.stringify(blogData.sub_sections));
         if (blogData.pull_quote_position !== undefined) fd.append('pull_quote_position', String(blogData.pull_quote_position));
 
-        // Editorial fields
-        if (blogData.slug) fd.append('slug', blogData.slug);
-        if (blogData.summary) fd.append('summary', blogData.summary);
-        if (blogData.standfirst) fd.append('standfirst', blogData.standfirst);
-        if (blogData.reading_time) fd.append('reading_time', blogData.reading_time);
-        if (blogData.author_byline) fd.append('author_byline', blogData.author_byline);
-        if (blogData.image_caption) fd.append('image_caption', blogData.image_caption);
-        if (blogData.image_alt) fd.append('image_alt', blogData.image_alt);
-        if (blogData.pull_quote) fd.append('pull_quote', blogData.pull_quote);
-        if (blogData.pull_quote_author) fd.append('pull_quote_author', blogData.pull_quote_author);
-        if (blogData.concluding_insight) fd.append('concluding_insight', blogData.concluding_insight);
-        if (blogData.is_featured !== undefined) fd.append('is_featured', String(blogData.is_featured));
-        if (blogData.status) fd.append('status', blogData.status);
-        if (blogData.scheduled_for) fd.append('scheduled_for', blogData.scheduled_for);
-        if (blogData.related_to_book !== undefined) fd.append('related_to_book', String(blogData.related_to_book));
-        if (blogData.book_concept) fd.append('book_concept', blogData.book_concept);
-        if (blogData.related_blog_ids) fd.append('related_blog_ids', JSON.stringify(blogData.related_blog_ids));
-        if (blogData.seo_title) fd.append('seo_title', blogData.seo_title);
-        if (blogData.seo_description) fd.append('seo_description', blogData.seo_description);
-        if (blogData.linkedin_url !== undefined) fd.append('linkedin_url', blogData.linkedin_url || '');
-        if (blogData.instagram_url !== undefined) fd.append('instagram_url', blogData.instagram_url || '');
-        if (blogData.facebook_url !== undefined) fd.append('facebook_url', blogData.facebook_url || '');
+        const fields = [
+            'slug', 'summary', 'standfirst', 'reading_time', 'author_byline',
+            'image_caption', 'image_alt', 'pull_quote', 'pull_quote_author',
+            'concluding_insight', 'status', 'scheduled_for', 'book_concept',
+            'seo_title', 'seo_description'
+        ];
 
-        const data = await apiRequest(`/blogs/${id}`, { method: 'PUT', body: fd });
-        return data.blog;
+        fields.forEach(field => {
+            if (blogData[field] !== undefined && blogData[field] !== null) {
+                fd.append(field, blogData[field]);
+            }
+        });
+
+        if (blogData.is_featured !== undefined) fd.append('is_featured', String(blogData.is_featured));
+        if (blogData.related_to_book !== undefined) fd.append('related_to_book', String(blogData.related_to_book));
+        if (blogData.related_blog_ids) fd.append('related_blog_ids', JSON.stringify(blogData.related_blog_ids));
+
+        if (blogData.social_image_url) fd.append('social_image_url', blogData.social_image_url);
+
+        ['linkedin_url', 'instagram_url', 'facebook_url'].forEach(field => {
+            if (blogData[field] !== undefined) {
+                fd.append(field, blogData[field] || '');
+            }
+        });
+
+        const data = await apiRequest(`/blogs/${id}`, {
+            method: 'PUT',
+            body: fd
+        });
+
+        return attachWarnings(data.blog, safeWarnings(data));
     }
 
-    // No new file — send JSON only
     const data = await apiRequest(`/blogs/${id}`, {
         method: 'PUT',
         body: JSON.stringify({
@@ -205,6 +238,8 @@ export async function updateBlog(id, blogData) {
             pull_quote_position: blogData.pull_quote_position !== undefined ? Number(blogData.pull_quote_position) : 1,
             image_url: blogData.image_url,
             image_path: blogData.image_path,
+            social_image_url: blogData.social_image_url || null,
+            remove_social_image: !!blogData.removeSocialImage,
             slug: blogData.slug,
             summary: blogData.summary,
             standfirst: blogData.standfirst,
@@ -228,12 +263,25 @@ export async function updateBlog(id, blogData) {
             facebook_url: blogData.facebook_url || null,
         }),
     });
-    return data.blog;
+
+    return attachWarnings(data.blog, safeWarnings(data));
 }
+
 
 /**
  * Fast status / featured toggle via PATCH
  */
+/**
+ * Bring every public share-preview page in line with the database (also the manual retry for failed refreshes).
+ * Resolves with { updated: [...], unchanged, removed: [...], failed: [{ slug, error }] }.
+ */
+export async function refreshPublicPages({ dryRun = false } = {}) {
+    return apiRequest(`/blogs/prerender/sync${dryRun ? '?dryRun=true' : ''}`, {
+        method: 'POST',
+        body: JSON.stringify({}),
+    });
+}
+
 export async function updateBlogStatus(id, { status, is_featured }) {
     const data = await apiRequest(`/blogs/${id}/status`, {
         method: 'PATCH',

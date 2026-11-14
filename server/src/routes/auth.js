@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { supabaseAdmin, supabase } = require('../config/supabase');
 const nodemailer = require('nodemailer');
+const { isAdminUser } = require('../middleware/auth');
 
 // Lazy SMTP transporter — built on first use so dotenv is guaranteed to have run
 function getTransporter() {
@@ -18,116 +19,33 @@ function getTransporter() {
     });
 }
 
-// POST /api/auth/sign-up
-router.post('/sign-up', async (req, res) => {
-    try {
-        const { email, password, full_name } = req.body;
-        console.log(`[Sign Up] Attempting to create user: ${email}`);
-
-        if (!email || !password) {
-            return res.status(400).json({ error: 'Email and password are required' });
-        }
-
-        const { data, error } = await supabaseAdmin.auth.admin.createUser({
-            email,
-            password,
-            email_confirm: true,
-            user_metadata: { full_name: full_name || '' },
-        });
-
-        if (error) {
-            console.error(`[Sign Up] Supabase admin.createUser error:`, error);
-            return res.status(400).json({ error: error.message });
-        }
-
-        console.log(`[Sign Up] User created successfully (ID: ${data.user?.id}). Attempting sign-in...`);
-
-        // Helper: attempt sign-in with one retry (Supabase may need a moment to propagate the new user)
-        async function attemptSignIn() {
-            const { data: d, error: e } = await supabase.auth.signInWithPassword({ email, password });
-            if (!e && d?.session) return { data: d, error: null };
-            console.log(`[Sign Up] First sign-in attempt failed (${e?.message}), retrying in 800ms...`);
-            await new Promise(resolve => setTimeout(resolve, 800));
-            return supabase.auth.signInWithPassword({ email, password });
-        }
-
-        const { data: signInData, error: signInError } = await attemptSignIn();
-
-        if (signInError) {
-            console.warn(`[Sign Up] signInWithPassword failed after retry: ${signInError.message}. User still created.`);
-            sendSignUpEmails(email, full_name).catch(err => console.error('❌ Signup email sending failed:', err));
-            return res.status(201).json({
-                message: 'User created successfully. Please sign in.',
-                user: data.user,
-                session: null,
-            });
-        }
-
-        console.log(`[Sign Up] Session obtained successfully for ${email}`);
-        sendSignUpEmails(email, full_name).catch(err => console.error('❌ Signup email sending failed:', err));
-
-        return res.status(201).json({
-            message: 'User created successfully',
-            user: data.user,
-            session: signInData?.session || null,
-        });
-    } catch (err) {
-        console.error('[Sign Up] Unexpected error:', err?.message, err?.status, err);
-        return res.status(500).json({ error: err?.message || 'Internal server error' });
-    }
+// POST /api/auth/sign-up  -  DISABLED.
+// This route used to create an already-confirmed account with admin.createUser() and return a live
+// session to ANY caller. Combined with the old "any valid session is an administrator" check, that let
+// anyone on the internet create their own administrator. Administrator accounts are now provisioned
+// only by the project owner: create the user in the Supabase dashboard, then run
+//     node server/scripts/grant-admin-role.js <email> --apply      (run without --apply first to preview)
+// Customer sign-up is not affected: the public website signs customers up directly with Supabase Auth.
+router.post('/sign-up', (req, res) => {
+    return res.status(403).json({
+        error: 'Administrator registration is disabled. Please ask the site owner to create your account.',
+    });
 });
 
-// Helper: send sign-up welcome + admin notification emails
-async function sendSignUpEmails(email, full_name) {
-    const transporter = getTransporter();
-    const adminEmail = process.env.ADMIN_EMAIL || process.env.SMTP_USER;
-
-    await transporter.sendMail({
-        from: process.env.SMTP_FROM || process.env.SMTP_USER,
-        replyTo: adminEmail,
-        to: email,
-        subject: 'Welcome to Siddiqui Digital Admin',
-        html: `
-            <div style="font-family: 'Segoe UI', Arial, sans-serif; max-width: 560px; margin: 0 auto; background: #0f172a; color: #e2e8f0; padding: 40px 32px; border-radius: 12px;">
-                <div style="text-align: center; margin-bottom: 24px;">
-                    <div style="display: inline-block; background: linear-gradient(135deg, #dc2626, #ef4444); width: 48px; height: 48px; border-radius: 10px; line-height: 48px; font-size: 22px; font-weight: bold; color: #fff;">S</div>
-                </div>
-                <h2 style="color: #f8fafc; text-align: center; margin: 0 0 8px;">Welcome, ${full_name || 'Admin'}!</h2>
-                <p style="text-align: center; color: #94a3b8; margin: 0 0 28px;">Your admin account has been created successfully.</p>
-                <div style="background: #1e293b; padding: 20px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 24px;">
-                    <p style="margin: 4px 0; font-size: 14px;"><strong style="color: #94a3b8;">Email:</strong> <span style="color: #f1f5f9;">${email}</span></p>
-                    <p style="margin: 4px 0; font-size: 14px;"><strong style="color: #94a3b8;">Name:</strong> <span style="color: #f1f5f9;">${full_name || 'N/A'}</span></p>
-                </div>
-                <p style="color: #94a3b8; font-size: 13px; text-align: center;">You can now sign in to the admin dashboard and manage your content.</p>
-                <hr style="border: none; border-top: 1px solid #334155; margin: 24px 0;" />
-                <p style="font-size: 12px; color: #64748b; text-align: center;">This is an automated message from Siddiqui Digital.</p>
-            </div>
-        `,
-    });
-    console.log('📧 Welcome email sent to:', email);
-
-    await transporter.sendMail({
-        from: process.env.SMTP_FROM || process.env.SMTP_USER,
-        to: adminEmail,
-        subject: `New Admin Signup: ${full_name || email}`,
-        html: `
-            <div style="font-family: 'Segoe UI', Arial, sans-serif; max-width: 560px; margin: 0 auto; color: #333; padding: 24px;">
-                <h2 style="color: #ef4444;">New Admin Account Created</h2>
-                <p>A new admin account has been registered on the dashboard.</p>
-                <div style="background: #f9f9f9; padding: 16px; border-radius: 8px; border: 1px solid #eee;">
-                    <p style="margin: 4px 0;"><strong>Name:</strong> ${full_name || 'N/A'}</p>
-                    <p style="margin: 4px 0;"><strong>Email:</strong> ${email}</p>
-                    <p style="margin: 4px 0;"><strong>Time:</strong> ${new Date().toLocaleString()}</p>
-                </div>
-                <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;" />
-                <p style="font-size: 0.85rem; color: #666;">This is an automated notification from Siddiqui Digital Admin.</p>
-            </div>
-        `,
-    });
-    console.log('📧 Admin notification sent to:', adminEmail);
+// The reset link is emailed to the account owner, so its host must be one WE trust. Taking it from the
+// request body would let an attacker request a reset for someone else's address and make the genuine
+// email point at the attacker's site, which would then receive the one-time token.
+function resolveFrontendBase(redirectTo) {
+    const fallback = (process.env.FRONTEND_URL || 'http://localhost:5173').replace(/\/$/, '');
+    if (!redirectTo || typeof redirectTo !== 'string') return fallback;
+    let origin;
+    try { origin = new URL(redirectTo).origin; } catch { return fallback; }
+    const allowed = new Set(['https://admin.siddiqui.digital']);
+    try { allowed.add(new URL(fallback).origin); } catch { /* ignore */ }
+    if (allowed.has(origin) || /^http:\/\/(localhost|127\.0\.0\.1):\d+$/.test(origin)) return origin;
+    return fallback;
 }
 
-// POST /api/auth/sign-in
 router.post('/sign-in', async (req, res) => {
     try {
         const { email, password } = req.body;
@@ -195,9 +113,7 @@ router.post('/reset-password', async (req, res) => {
         // Build a direct link to the frontend reset-password page with the token.
         // Use client-supplied redirectTo base (window.location.origin from the browser) so it works
         // on any environment (localhost:5173, localhost:5174, https://admin.siddiqui.digital, etc.)
-        const frontendBase = redirectTo
-            ? redirectTo.replace('/reset-password', '').replace(/\/$/, '')
-            : (process.env.FRONTEND_URL || 'http://localhost:5173');
+        const frontendBase = resolveFrontendBase(redirectTo);
 
         const resetLink = `${frontendBase}/reset-password?token_hash=${encodeURIComponent(tokenHash)}&type=recovery`;
         console.log(`[Reset Password] Generated direct reset link for ${email} → ${frontendBase}/reset-password`);
@@ -264,7 +180,7 @@ router.get('/me', async (req, res) => {
             .eq('id', user.id)
             .single();
 
-        return res.status(200).json({ user, profile });
+        return res.status(200).json({ user, profile, isAdmin: isAdminUser(user) });
     } catch (err) {
         console.error('Get user error:', err);
         return res.status(500).json({ error: 'Internal server error' });

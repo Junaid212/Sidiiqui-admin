@@ -2,6 +2,7 @@ import React, { useState, useRef } from 'react';
 import { inspectZipArchive, commitZipImportBatch } from '../../services/blogService';
 import RichTextEditor from './RichTextEditor';
 import toast from 'react-hot-toast';
+import { zipWarningsMessage } from '../../utils/serverWarnings';
 
 const REFERENCE_CATEGORIES = [
     'SID Philosophy',
@@ -246,6 +247,7 @@ export default function ZipImporterModal({
         let allSaved = [];
         let allSkipped = [];
         let allFailed = [];
+        let allWarnings = [];
 
         try {
             for (let b = 0; b < totalBatches; b++) {
@@ -266,6 +268,7 @@ export default function ZipImporterModal({
                     allSaved = allSaved.concat(res.batchResults.saved || []);
                     allSkipped = allSkipped.concat(res.batchResults.skipped || []);
                     allFailed = allFailed.concat(res.batchResults.failed || []);
+                    allWarnings = allWarnings.concat(res.batchResults.warnings || []);
                 }
             }
 
@@ -288,6 +291,8 @@ export default function ZipImporterModal({
 
             setImportReport(finalReport);
             toast.success(`Import complete! ${allSaved.length} saved, ${allSkipped.length} skipped, ${allFailed.length} failed.`);
+            const zipWarning = zipWarningsMessage(allWarnings);
+            if (zipWarning) toast(zipWarning, { icon: '⚠️', duration: 10000 });
 
             if (onImportComplete) {
                 onImportComplete(finalReport);

@@ -1,0 +1,83 @@
+/**
+ * Test-only preload (node -r). Replaces the admin server's Supabase client and nodemailer with in-memory
+ * fakes so the REAL src/index.js can be started and exercised over HTTP without any network, database
+ * or e-mail account. Nothing here is loaded in production.
+ *
+ * Fake sessions (Bearer tokens):
+ *   admin-token     administrator            (app_metadata.role = 'admin')
+ *   customer-token  ordinary customer        (Google sign-in, no role)
+ *   spoof-token     customer who put 'admin' in user_metadata (a field a user can edit themselves)
+ *   mailbox-token   customer whose e-mail equals ADMIN_EMAIL (e-mail addresses must not grant admin)
+ */
+'use strict';
+const fs = require('fs');
+const path = require('path');
+
+const root = path.resolve(__dirname, '..', '..'); // .../server
+const LOG = process.env.FAKE_CALL_LOG;
+const log = (entry) => { if (LOG) fs.appendFileSync(LOG, JSON.stringify(entry) + '\n'); };
+
+const USERS = {
+  'admin-token': { id: 'u-admin', email: 'admin@example.com', email_confirmed_at: '2024-01-01T00:00:00Z', app_metadata: { provider: 'email', role: 'admin' }, user_metadata: {} },
+  'customer-token': { id: 'u-cust', email: 'cust@example.com', email_confirmed_at: '2024-01-01T00:00:00Z', app_metadata: { provider: 'google' }, user_metadata: { full_name: 'A Customer' } },
+  'spoof-token': { id: 'u-spoof', email: 'spoof@example.com', email_confirmed_at: '2024-01-01T00:00:00Z', app_metadata: { provider: 'email' }, user_metadata: { role: 'admin', account_type: 'admin' } },
+  'unconfirmed-token': { id: 'u-unconf', email: 'new@example.com', email_confirmed_at: null, app_metadata: { provider: 'email' }, user_metadata: {} },
+  'mailbox-token': { id: 'u-mail', email: (process.env.ADMIN_EMAIL || 'owner@example.com'), email_confirmed_at: '2024-01-01T00:00:00Z', app_metadata: { provider: 'email' }, user_metadata: {} },
+};
+
+// Chainable, awaitable stand-in for supabase.from(table)...  Every chain resolves to an empty result;
+// writes are recorded so tests can assert exactly what an endpoint tried to store.
+function chain(table) {
+  const state = { table, op: 'select' };
+  const proxy = new Proxy(function () {}, {
+    get(_t, prop) {
+      if (prop === 'then') {
+        return (resolve, reject) => {
+          if (state.op !== 'select') log({ table: state.table, op: state.op, payload: state.payload });
+          const empty = state.single ? { data: null, error: null } : { data: [], error: null, count: 0 };
+          return Promise.resolve(empty).then(resolve, reject);
+        };
+      }
+      return (...args) => {
+        if (['insert', 'update', 'upsert', 'delete'].includes(String(prop))) { state.op = String(prop); state.payload = args[0]; }
+        if (prop === 'single' || prop === 'maybeSingle') state.single = true;
+        return proxy;
+      };
+    },
+  });
+  return proxy;
+}
+
+const supabaseAdmin = {
+  from: (table) => chain(table),
+  storage: { from: () => ({ upload: async () => ({ data: {}, error: null }), getPublicUrl: () => ({ data: { publicUrl: 'https://example.invalid/x' } }), remove: async () => ({ error: null }), list: async () => ({ data: [], error: null }) }) },
+  rpc: async () => ({ data: null, error: null }),
+  auth: {
+    getUser: async (token) => (USERS[token] ? { data: { user: USERS[token] }, error: null } : { data: { user: null }, error: { message: 'invalid token' } }),
+    signInWithPassword: async () => ({ data: {}, error: { message: 'unused on the admin client' } }),
+    admin: {
+      createUser: async (args) => { log({ call: 'auth.admin.createUser', email: args && args.email }); return { data: { user: { id: 'new-user', email: args && args.email } }, error: null }; },
+      listUsers: async () => ({ data: { users: Object.values(USERS) }, error: null }),
+      updateUserById: async (id, attrs) => { log({ call: 'auth.admin.updateUserById', id, attrs }); return { data: {}, error: null }; },
+      generateLink: async () => ({ data: { properties: { action_link: 'https://project.supabase.co/auth/v1/verify?token=TOKEN123&type=recovery' } }, error: null }),
+    },
+  },
+};
+
+// The anon client is what /api/auth/sign-in uses.
+const supabase = {
+  auth: {
+    signInWithPassword: async ({ email, password }) =>
+      (email === 'admin@example.com' && password === 'correct-password')
+        ? { data: { user: USERS['admin-token'], session: { access_token: 'admin-token' } }, error: null }
+        : { data: {}, error: { message: 'Invalid login credentials' } },
+  },
+};
+
+function stub(request, exports_) {
+  const resolved = require.resolve(request, { paths: [root] });
+  require.cache[resolved] = { id: resolved, filename: resolved, loaded: true, exports: exports_, children: [], paths: [] };
+}
+
+stub(path.join(root, 'src', 'config', 'supabase.js'), { supabaseAdmin, supabase });
+stub('nodemailer', { createTransport: () => ({ sendMail: async (opts) => { log({ call: 'sendMail', to: opts.to, subject: opts.subject, html: opts.html }); return {}; } }) });

@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { apiRequest } from '../config/api';
+import OfferBannerCard from '../components/OfferBannerCard';
 import toast from 'react-hot-toast';
 import {
     HiOutlinePlus, HiOutlinePencil, HiOutlineTrash, HiOutlineX,
@@ -1235,6 +1236,8 @@ export default function DigitalProducts() {
                     <HiOutlinePlus size={18} /> Add Publication
                 </button>
             </div>
+
+            <OfferBannerCard />
 
             {loading ? <div className="page-loading"><div className="spinner" /></div> : (
                 <div className="table-wrapper">

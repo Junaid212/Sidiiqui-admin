@@ -74,7 +74,7 @@ export default function OrdersTable({ orders, onRefresh }) {
                                         })}
                                     </td>
                                     <td style={{ fontWeight: '700', color: '#10b981' }}>
-                                        {order.currency || 'AED'} {Number(order.amount).toFixed(2)}
+                                        {order.currency || 'USD'} {Number(order.amount).toFixed(2)}
                                     </td>
                                     <td>
                                         <span style={{

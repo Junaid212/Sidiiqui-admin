@@ -95,12 +95,6 @@ export default function Login() {
                     </button>
                 </form>
 
-                <div className="auth-card__footer">
-                    <p>
-                        Don't have an account?{' '}
-                        <Link to="/register" className="auth-link">Sign Up</Link>
-                    </p>
-                </div>
             </div>
         </div>
     );

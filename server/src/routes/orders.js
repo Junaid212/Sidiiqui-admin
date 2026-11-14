@@ -105,7 +105,7 @@ router.get('/export-csv', async (req, res) => {
             `"${o.email || ''}"`,
             `"${(o.book_name || 'Marketing Reclassified').replace(/"/g, '""')}"`,
             Number(o.raw_metadata?.exact_amount ? o.raw_metadata.exact_amount : o.amount || 0).toFixed(2),
-            o.currency || 'AED',
+            o.currency || 'USD',
             o.status || 'pending',
             o.download_count || 0,
             o.download_limit || 3,
@@ -127,18 +127,41 @@ router.get('/export-csv', async (req, res) => {
 router.post('/:id/refund', async (req, res) => {
     try {
         const { id } = req.params;
-        const { error } = await supabaseAdmin
+
+        // A refund must revoke access, not only relabel the order: clear the download token and mark the
+        // refund so every download / reader check on the customer API denies it. If this database has not
+        // got one of the extra columns yet, fall back to the original status-only update (never a regression;
+        // the customer API already denies status === 'refunded').
+        let { error } = await supabaseAdmin
             .from('orders')
-            .update({
-                status: 'refunded',
-            })
+            .update({ status: 'refunded', refund_status: 'refunded', download_token: null })
             .eq('id', id);
+        let accessRevoked = !error;
+
+        if (error) {
+            ({ error } = await supabaseAdmin
+                .from('orders')
+                .update({ status: 'refunded' })
+                .eq('id', id));
+        }
 
         if (error) {
             return res.status(500).json({ error: error.message });
         }
 
-        return res.status(200).json({ message: 'Order marked as refunded successfully' });
+        // A refund also ends the customer's entitlement (Companion downloads / Ask SID / online reader). History is kept.
+        // Best effort: the customer API additionally re-checks the source order on every access, so a failure here cannot leave access open.
+        let entitlementRevoked = null;
+        try {
+            const { data: refunded } = await supabaseAdmin.from('orders').select('*').eq('id', id).maybeSingle();
+            if (refunded) entitlementRevoked = (await require('../utils/entitlementSync').syncOrderEntitlement({ ...refunded, status: 'refunded', refund_status: 'refunded' })).ok;
+        } catch (e) { console.warn('Entitlement revoke after refund:', e.message); }
+
+        return res.status(200).json({
+            message: 'Order marked as refunded successfully',
+            downloadTokenCleared: accessRevoked,
+            entitlementRevoked,
+        });
     } catch (err) {
         console.error('Order refund error:', err);
         return res.status(500).json({ error: 'Internal server error' });

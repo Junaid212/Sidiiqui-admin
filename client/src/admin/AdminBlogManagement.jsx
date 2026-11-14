@@ -1,16 +1,18 @@
 import { useState, useEffect, useMemo } from 'react';
-import { fetchBlogs, createBlog, updateBlog, deleteBlog, updateBlogStatus } from '../services/blogService';
+import { fetchBlogs, createBlog, updateBlog, deleteBlog, updateBlogStatus, refreshPublicPages } from '../services/blogService';
 import BlogList from '../components/Blog/BlogList';
 import BlogForm from '../components/Blog/BlogForm';
 import ZipImporterModal from '../components/Blog/ZipImporterModal';
 import ErrorBoundary from '../components/Common/ErrorBoundary';
 import toast from 'react-hot-toast';
+import { readWarnings } from '../utils/serverWarnings';
 import { renderEditorialBody, renderHighlightBox, renderPullQuote, renderAuthorBox } from '../utils/editorialRenderer';
 
 export default function AdminBlogManagement() {
     const [blogs, setBlogs] = useState([]);
     const [loading, setLoading] = useState(true);
     const [showForm, setShowForm] = useState(false);
+    const [refreshingPreviews, setRefreshingPreviews] = useState(false);
     const [showZipImporter, setShowZipImporter] = useState(false);
     const [editingBlog, setEditingBlog] = useState(null);
     const [previewBlog, setPreviewBlog] = useState(null);
@@ -36,12 +38,39 @@ export default function AdminBlogManagement() {
         }
     }
 
+    // Non-fatal warnings from the server (already mapped to fixed, user-safe text by blogService)
+    function showSaveWarnings(blog) {
+        readWarnings(blog).forEach((message) => toast(message, { icon: '⚠️', duration: 10000 }));
+    }
+
+    // Manual retry / "make everything current": re-checks every public share-preview page against the database
+    async function handleRefreshPreviews() {
+        setRefreshingPreviews(true);
+        try {
+            const r = await refreshPublicPages();
+            const failed = Array.isArray(r.failed) ? r.failed.length : 0;
+            const updated = Array.isArray(r.updated) ? r.updated.length : 0;
+            if (failed > 0) {
+                toast(`${updated} share preview${updated === 1 ? '' : 's'} refreshed, ${failed} could not be refreshed. Please try again shortly.`, { icon: '⚠️', duration: 10000 });
+            } else if (updated > 0) {
+                toast.success(`Share previews refreshed (${updated} updated, ${r.unchanged || 0} already up to date).`);
+            } else {
+                toast.success(`All share previews are already up to date (${r.unchanged || 0} checked).`);
+            }
+        } catch (err) {
+            toast.error(err.message || 'Could not refresh share previews');
+        } finally {
+            setRefreshingPreviews(false);
+        }
+    }
+
     async function handleCreate(formData) {
         try {
             const data = await createBlog(formData);
             setBlogs((prev) => [data, ...prev]);
             setShowForm(false);
             toast.success('Article created successfully');
+            showSaveWarnings(data);
         } catch (err) {
             toast.error(err.message || 'Failed to create article');
         }
@@ -56,6 +85,7 @@ export default function AdminBlogManagement() {
             setEditingBlog(null);
             setShowForm(false);
             toast.success('Article updated successfully');
+            showSaveWarnings(data);
         } catch (err) {
             toast.error(err.message || 'Failed to update article');
         }
@@ -191,6 +221,14 @@ export default function AdminBlogManagement() {
                         title="Import articles and images from a ZIP archive"
                     >
                         <span>📦 Import ZIP (Bulk / Single)</span>
+                    </button>
+                    <button
+                        className="btn btn--outline"
+                        onClick={handleRefreshPreviews}
+                        disabled={refreshingPreviews}
+                        title="Re-check every public share-preview page (used by Facebook, LinkedIn, X, WhatsApp) against the saved articles and repair any that are out of date"
+                    >
+                        {refreshingPreviews ? 'Refreshing…' : '🔄 Refresh share previews'}
                     </button>
                     <button
                         className="btn btn--primary"

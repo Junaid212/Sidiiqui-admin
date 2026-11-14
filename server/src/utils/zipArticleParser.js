@@ -67,6 +67,8 @@ function calculateReadingTime(text) {
     return `${minutes} min read`;
 }
 
+const { evaluateZipSocialImage } = require('./socialImage');
+
 // Upload buffer directly to Supabase Storage 'blogs' bucket
 async function uploadBufferToStorage(buffer, originalName, folder = 'blog-images', mimeType = 'image/png') {
     const ext = (path.extname(originalName) || '.png').toLowerCase();
@@ -641,10 +643,20 @@ async function parseZipArticles(zipBuffer, existingBlogs = []) {
             }
 
             let socialPath = null;
+            let socialUrl = null;
             let socialStatus = 'missing';
+
             if (matchedSocialEntry) {
-                socialStatus = 'matched';
-                socialPath = `blog-images/${path.basename(matchedSocialEntry.entryName)}`;
+                // Same rules as direct uploads (JPEG signature, <= 2 MB, real dimensions).
+                // Preview only (Base64) - uploaded to storage at commit time, never during inspection.
+                const socialResult = evaluateZipSocialImage({
+                    entryName: matchedSocialEntry.entryName,
+                    getBuffer: () => matchedSocialEntry.getData(),
+                    title,
+                });
+                socialStatus = socialResult.status;
+                socialUrl = socialResult.url;
+                if (socialResult.message) validationErrors.push(socialResult.message);
             }
 
             detectedArticles.push({
@@ -666,6 +678,7 @@ async function parseZipArticles(zipBuffer, existingBlogs = []) {
                 image_caption: m.image_caption || null,
                 image_alt: m.cover_image_alt || m.image_alt || null,
                 social_image_path: socialPath,
+                social_image_url: socialUrl,
                 social_image_status: socialStatus,
                 summary,
                 standfirst,

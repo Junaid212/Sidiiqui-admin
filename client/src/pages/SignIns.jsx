@@ -56,7 +56,7 @@ export default function SignIns() {
             </header>
 
             {/* Stats Row */}
-            <div style={{ display: 'flex', gap: '16px', marginBottom: '24px' }}>
+            <div className="stat-row" style={{ display: 'flex', gap: '16px', marginBottom: '24px' }}>
                 <div style={{
                     flex: 1, background: 'var(--bg-card)', border: '1px solid var(--border-color)',
                     borderRadius: 'var(--radius-md)', padding: '16px 20px', textAlign: 'center'

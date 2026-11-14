@@ -3,3 +3,6 @@ node_modules/
 .DS_Store
 powershell.cmd
 
+
+# live settings written by the running server (not code)
+server/src/data/offer_banner.json

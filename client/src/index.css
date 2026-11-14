@@ -175,6 +175,7 @@ a:hover {
   left: 0;
   width: var(--sidebar-width);
   height: 100vh;
+  height: 100dvh;
   background: var(--sidebar-bg);
   backdrop-filter: blur(20px);
   border-right: 1px solid var(--border-color);
@@ -218,11 +219,32 @@ a:hover {
 
 .sidebar__nav {
   flex: 1;
-  padding: 16px 12px;
+  min-height: 0;            /* lets the list shrink so it can scroll */
+  overflow-y: auto;         /* scroll when there are more items than fit */
+  overscroll-behavior: contain;
+  padding: 16px 8px 16px 12px;
   display: flex;
   flex-direction: column;
   gap: 4px;
 }
+
+/* Firefox only (Chrome/Edge/Safari use the ::-webkit-scrollbar pill below; setting scrollbar-color there would override it) */
+@supports not selector(::-webkit-scrollbar) {
+  .sidebar__nav { scrollbar-width: thin; scrollbar-color: rgba(167, 139, 250, 0.4) transparent; }
+}
+.sidebar__nav::-webkit-scrollbar { width: 8px; }
+.sidebar__nav::-webkit-scrollbar-track { background: transparent; margin: 8px 0; }
+.sidebar__nav::-webkit-scrollbar-thumb {
+  background: rgba(167, 139, 250, 0.28);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+  transition: background var(--transition-fast);
+}
+.sidebar__nav:hover::-webkit-scrollbar-thumb { background: rgba(167, 139, 250, 0.5); background-clip: content-box; }
+.sidebar__nav::-webkit-scrollbar-thumb:hover { background: rgba(167, 139, 250, 0.8); background-clip: content-box; }
+.sidebar__nav .sidebar__link { flex-shrink: 0; }
+.sidebar__brand, .sidebar__footer { flex-shrink: 0; }
 
 .sidebar__link {
   display: flex;
@@ -1566,3 +1588,87 @@ a:hover {
   color: var(--accent-primary);
   text-decoration: underline;
 }
+/* ============================================
+   MOBILE / TABLET SAFETY NET
+   Many pages style their layout inline (fixed multi-column grids, fixed pixel widths).
+   These rules make every page usable on phones without changing desktop layouts.
+   ============================================ */
+.layout__main { min-width: 0; max-width: 100vw; }
+.layout__main img, .layout__main video, .layout__main canvas, .layout__main iframe { max-width: 100%; }
+.layout__main pre { overflow-x: auto; max-width: 100%; }
+.stat-row { flex-wrap: wrap; }
+.stat-row > * { flex: 1 1 140px !important; min-width: 0; }
+
+@media (max-width: 900px) {
+  /* 3-4 column inline grids -> 2 columns */
+  .layout__main [style*="grid-template-columns"][style*="1fr 1fr 1fr"] { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+  /* two-pane layouts (list + editor) stack */
+  .layout__main [style*="grid-template-columns: minmax("] { grid-template-columns: minmax(0, 1fr) !important; }
+}
+
+@media (max-width: 768px) {
+  /* inner pages that add their own side padding on top of the layout padding */
+  .layout__main > .page[style*="padding"] { padding-left: 0 !important; padding-right: 0 !important; max-width: 100% !important; }
+  /* any element with a fixed pixel width can never be wider than its container */
+  .layout__main [style*="width"] { max-width: 100%; }
+  /* charts size themselves from their parent (starts at 0px while measuring) - never cap them */
+  .layout__main .recharts-responsive-container *, .layout__main .chart-wrapper * { max-width: none !important; }
+  .layout__main [style*="min-width"] { min-width: 0 !important; }
+  /* search boxes / filters with fixed widths fill the row */
+  .layout__main [style*="width: 320px"], .layout__main [style*="width: 280px"] { width: 100% !important; }
+  /* rows of controls wrap instead of overflowing */
+  .layout__main [style*="display: flex"][style*="gap"] { flex-wrap: wrap; }
+  /* uneven two-column grids (label + wide field) stack; even 2-column grids stay side by side down to 480px */
+  .layout__main [style*="grid-template-columns: 1fr 2fr"], .layout__main [style*="grid-template-columns: 1fr 1.5fr"] { grid-template-columns: minmax(0, 1fr) !important; }
+  /* inputs: 16px stops iOS zooming in on focus; comfortable tap targets */
+  .layout__main input, .layout__main select, .layout__main textarea { font-size: 16px; max-width: 100%; }
+  .btn, .layout__main button { min-height: 38px; }
+  /* long words / emails / ids never push the page wider */
+  .layout__main td, .layout__main th, .layout__main p, .layout__main h1, .layout__main h2, .layout__main h3 { overflow-wrap: anywhere; }
+  .data-table td, .data-table th { overflow-wrap: normal; }
+  /* the menu button sits over the top-left corner; keep the logo clear of it when the menu is open */
+  .sidebar__brand { padding-left: 76px; }
+  /* full-screen style modals */
+  .modal-overlay { padding: 8px; }
+  .modal { max-width: 100%; }
+  .modal__header { padding: 16px 18px; }
+  .layout__main [style*="position: fixed"][style*="inset: 0"] { padding: 8px !important; }
+}
+
+@media (max-width: 480px) {
+  .layout__main [style*="grid-template-columns"]:not([style*="auto-fit"]):not([style*="auto-fill"]) { grid-template-columns: minmax(0, 1fr) !important; }
+  .layout__main { padding-left: 12px; padding-right: 12px; }
+}
+
+
+/* Online Reading: a roomier writing area */
+.reading-editor .tiptap-editor-wrapper .ProseMirror,
+.reading-editor .ProseMirror { min-height: 62vh; font-size: 1.05rem; line-height: 1.75; }
+.reading-editor textarea.form-textarea { min-height: 62vh; font-size: 0.98rem; line-height: 1.6; }
+
+/* Dropdown lists: the page is dark, so the menu must be too (the options were pale text on a white menu) */
+select.form-input, select { color-scheme: dark; }
+select option, select optgroup { background-color: #1b1b2d; color: #f0f0f8; }
+
+
+/* Dialog content needs its own padding (the header has its own) */
+.modal__body { padding: 22px 28px 28px; }
+@media (max-width: 480px) { .modal__body { padding: 18px 18px 22px; } }
+
+/* Chapter preview: the same look as the reader the customers see (light paper, serif text) */
+.reading-preview-paper { background: #fbfaf7; color: #1f1f23; border-radius: 12px; padding: 40px 48px; max-width: 760px; margin: 0 auto; box-shadow: 0 6px 28px rgba(0, 0, 0, 0.35); }
+.reading-preview-paper .rp-title { font-family: Georgia, "Times New Roman", serif; font-size: 2rem; line-height: 1.25; margin: 0 0 26px; color: #1f1f23; }
+.reading-preview-paper .rp-content { font-family: Georgia, "Times New Roman", serif; font-size: 1.14rem; line-height: 1.85; color: #1f1f23; }
+.reading-preview-paper .rp-content p { margin: 0 0 1.1em; }
+.reading-preview-paper .rp-content h1, .reading-preview-paper .rp-content h2, .reading-preview-paper .rp-content h3, .reading-preview-paper .rp-content h4 { font-family: inherit; line-height: 1.3; margin: 2em 0 .6em; color: #1f1f23; }
+.reading-preview-paper .rp-content h1 { font-size: 1.9rem; } .reading-preview-paper .rp-content h2 { font-size: 1.55rem; } .reading-preview-paper .rp-content h3 { font-size: 1.28rem; } .reading-preview-paper .rp-content h4 { font-size: 1.1rem; }
+.reading-preview-paper .rp-content ul, .reading-preview-paper .rp-content ol { margin: 0 0 1.1em; padding-left: 1.7em; }
+.reading-preview-paper .rp-content li { margin: 0 0 .35em; }
+.reading-preview-paper .rp-content blockquote { margin: 1.6em 0; padding: .2em 1.2em; border-left: 4px solid #c80808; color: #44444b; font-style: italic; }
+.reading-preview-paper .rp-content table { width: 100%; border-collapse: collapse; margin: 1.6em 0; font-size: .96rem; display: block; overflow-x: auto; }
+.reading-preview-paper .rp-content th, .reading-preview-paper .rp-content td { border: 1px solid #ddd8cb; padding: 8px 10px; text-align: left; vertical-align: top; }
+.reading-preview-paper .rp-content img { max-width: 100%; height: auto; }
+.reading-preview-paper .rp-content hr { border: 0; border-top: 1px solid #ddd8cb; margin: 2em 0; }
+.reading-preview-paper .rp-content a { color: #c80808; }
+.reading-preview-paper .rp-content pre, .reading-preview-paper .rp-content code { background: #f1efe7; border-radius: 4px; padding: 2px 5px; overflow-x: auto; }
+@media (max-width: 640px) { .reading-preview-paper { padding: 24px 20px; } .reading-preview-paper .rp-title { font-size: 1.6rem; } .reading-preview-paper .rp-content { font-size: 1.05rem; line-height: 1.75; } }

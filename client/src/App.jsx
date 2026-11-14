@@ -3,7 +3,6 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import { Toaster } from 'react-hot-toast';
 import Layout from './components/Layout/Layout';
 import Login from './pages/Login';
-import Register from './pages/Register';
 import Dashboard from './pages/Dashboard';
 import Consultations from './pages/Consultations';
 import AdminBlogManagement from './admin/AdminBlogManagement';
@@ -20,11 +19,39 @@ import ResetPassword from './pages/ResetPassword';
 import ContactMessages from './pages/ContactMessages';
 import QuestionnaireAnalytics from './pages/QuestionnaireAnalytics';
 import AskSidSettings from './pages/AskSidSettings';
+import ReadingContent from './pages/ReadingContent';
+import Entitlements from './pages/Entitlements';
+import CompanionFiles from './pages/CompanionFiles';
+
+// Shown to a signed-in person who is not an administrator (e.g. a customer of the public site, which
+// shares this login system), or when the server could not confirm the role.
+function AdminAccessMessage({ kind }) {
+  const { signOut, retryAdminCheck } = useAuth();
+  const denied = kind === 'denied';
+  return (
+    <div className="auth-page">
+      <div className="auth-card">
+        <div className="auth-card__header">
+          <h1>{denied ? 'Administrator access required' : 'Could not verify access'}</h1>
+          <p>
+            {denied
+              ? 'This account is not an administrator of the dashboard. If you should have access, please contact the site owner.'
+              : 'We could not confirm your administrator access. Check your connection and try again.'}
+          </p>
+        </div>
+        {!denied && (
+          <button type="button" className="btn btn-primary" onClick={retryAdminCheck}>Try again</button>
+        )}
+        <button type="button" className="btn btn-secondary" onClick={() => signOut().catch(() => {})}>Sign out</button>
+      </div>
+    </div>
+  );
+}
 
 function ProtectedRoute({ children }) {
-  const { isAuthenticated, loading } = useAuth();
+  const { isAuthenticated, isAdmin, adminStatus, loading } = useAuth();
 
-  if (loading) {
+  if (loading || (isAuthenticated && adminStatus === 'unknown')) {
     return (
       <div className="page-loading">
         <div className="spinner" />
@@ -33,7 +60,10 @@ function ProtectedRoute({ children }) {
     );
   }
 
-  return isAuthenticated ? children : <Navigate to="/login" replace />;
+  if (!isAuthenticated) return <Navigate to="/login" replace />;
+  if (adminStatus === 'error') return <AdminAccessMessage kind="error" />;
+  if (!isAdmin) return <AdminAccessMessage kind="denied" />;
+  return children;
 }
 
 function GuestRoute({ children }) {
@@ -67,7 +97,6 @@ function App() {
         <Routes>
           {/* Guest routes */}
           <Route path="/login" element={<GuestRoute><Login /></GuestRoute>} />
-          <Route path="/register" element={<GuestRoute><Register /></GuestRoute>} />
           <Route path="/forgot-password" element={<GuestRoute><ForgotPassword /></GuestRoute>} />
           <Route path="/reset-password" element={<ResetPassword />} />
           <Route path="/blog" element={<BlogList />} />
@@ -87,6 +116,9 @@ function App() {
             <Route path="/contact-messages" element={<ContactMessages />} />
             <Route path="/questionnaire" element={<QuestionnaireAnalytics />} />
             <Route path="/ask-sid" element={<AskSidSettings />} />
+            <Route path="/reading" element={<ReadingContent />} />
+            <Route path="/customers-access" element={<Entitlements />} />
+            <Route path="/companion-files" element={<CompanionFiles />} />
           </Route>
 
           {/* Fallback */}

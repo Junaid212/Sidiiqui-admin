@@ -1,7 +1,17 @@
 
 const blogSocialsStore = require('../utils/blogSocialsStore');
 const blogSubsectionsStore = require('../utils/blogSubsectionsStore');
-const { parseZipArticles } = require('../utils/zipArticleParser');
+const { parseZipArticles, uploadBufferToStorage } = require('../utils/zipArticleParser');
+const {
+    validateSocialJpeg,
+    validateSocialDataUrl,
+    storagePathFromPublicUrl,
+    deleteStorageFileIfUnreferenced,
+    socialColumnExists,
+    SOCIAL_COLUMN_MISSING_MESSAGE,
+} = require('../utils/socialImage');
+const crypto = require('crypto');
+const blogPrerender = require('../utils/blogPrerender');
 
 function enrichBlogSocials(b) {
     if (!b) return b;
@@ -27,14 +37,33 @@ const { supabaseAdmin } = require('../config/supabase');
 // Configure multer for memory storage (files stay in buffer)
 const upload = multer({
     storage: multer.memoryStorage(),
-    limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
+    limits: { fileSize: 5 * 1024 * 1024 },
     fileFilter: (req, file, cb) => {
-        const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
-        if (allowedTypes.includes(file.mimetype)) {
-            cb(null, true);
-        } else {
-            cb(new Error('Invalid file type. Only JPEG, PNG, WebP, and GIF are allowed.'));
+        if (file.fieldname === 'social_image') {
+            const ext = path.extname(file.originalname || '').toLowerCase();
+
+            if (
+                file.mimetype === 'image/jpeg' &&
+                ['.jpg', '.jpeg'].includes(ext)
+            ) {
+                return cb(null, true);
+            }
+
+            return cb(new Error('Invalid file type. Social sharing images must be JPG/JPEG.'));
         }
+
+        const allowedTypes = [
+            'image/jpeg',
+            'image/png',
+            'image/webp',
+            'image/gif'
+        ];
+
+        if (allowedTypes.includes(file.mimetype)) {
+            return cb(null, true);
+        }
+
+        cb(new Error('Invalid file type. Only JPEG, PNG, WebP, and GIF are allowed.'));
     },
 });
 
@@ -65,7 +94,8 @@ async function uploadImage(file) {
         .replace(/-+/g, '-')
         .replace(/^-+|-+$/g, '') || 'image';
 
-    const fileName = `${Date.now()}-${base}${ext}`;
+    const suffix = Math.random().toString(36).substring(2, 7);
+    const fileName = `${Date.now()}-${suffix}-${base}${ext}`;
     const filePath = `blog-images/${fileName}`;
 
     const { data, error } = await supabaseAdmin.storage
@@ -96,6 +126,29 @@ async function deleteImage(imagePath) {
         console.error('Failed to delete image from storage:', error);
     }
 }
+
+// Social images are stored per ARTICLE ID: blog-images/social/<articleId>/<random>.jpg
+// The file name the admin picked is never used for storage or lookup, so changing an article's title or slug
+// can never orphan or break its social image. The public URL is saved on the article row (social_image_url).
+async function uploadSocialImage(file, articleId) {
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(articleId || ''))) {
+        throw new Error('A valid article id is required to store a social image');
+    }
+    const key = `blog-images/social/${articleId}/${Date.now()}-${crypto.randomBytes(6).toString('hex')}.jpg`;
+    const { error } = await supabaseAdmin.storage.from('blogs').upload(key, file.buffer, { contentType: 'image/jpeg', upsert: false });
+    if (error) throw error;
+    const { data: urlData } = supabaseAdmin.storage.from('blogs').getPublicUrl(key);
+    return { path: key, url: urlData.publicUrl };
+}
+
+// After a SUCCESSFUL database save: refresh that article's prerendered public page.
+// Never throws and never changes the save result; failures are returned, logged, and retried by the periodic sweep.
+const PRERENDER_FAILED_WARNING = 'The public share preview page could not be refreshed yet. It will be retried automatically.';
+async function refreshPublicPage(article, opts = {}) {
+    const result = await blogPrerender.syncArticle(article, { db: supabaseAdmin, ...opts });
+    return { result, warnings: result.status === 'failed' ? [PRERENDER_FAILED_WARNING] : [] };
+}
+const prerenderSummary = (r) => ({ status: r.status, ...(r.actions && r.actions.length ? { actions: r.actions } : {}), ...(r.reason ? { reason: r.reason } : {}), ...(r.message ? { message: r.message } : {}) });
 
 // Helper to normalize and sanitize category strings (supports array or comma-separated string)
 function sanitizeTopic(val) {
@@ -171,6 +224,7 @@ function sanitizeDate(val) {
 // Helper to safely insert or update with schema fallback for missing columns
 async function safeDbOperation(operation, payload, id = null) {
     let currentPayload = { ...payload };
+    const droppedColumns = []; // columns the database does not have; reported to callers, never silent
     const maxRetries = 25;
     let attempts = 0;
 
@@ -185,7 +239,7 @@ async function safeDbOperation(operation, payload, id = null) {
             }
 
             if (!res.error) {
-                return res;
+                return Object.assign(res, { droppedColumns });
             }
 
             // Check if error is due to missing column (Postgres 42703 or PostgREST PGRST204 / schema cache)
@@ -217,6 +271,10 @@ async function safeDbOperation(operation, payload, id = null) {
 
                 if (failedCol && currentPayload[failedCol] !== undefined) {
                     console.warn(`[Schema Fallback] Column '${failedCol}' not in database schema. Omitting from DB payload and retrying...`);
+                    if (failedCol === 'social_image_url' && currentPayload[failedCol] !== null) {
+                        console.error('[Schema Fallback] WARNING: blogs.social_image_url does not exist — the social image value was NOT saved. Apply supabase/migrations/add_social_image_to_blogs.sql.');
+                    }
+                    droppedColumns.push(failedCol);
                     delete currentPayload[failedCol];
                     continue;
                 }
@@ -231,7 +289,13 @@ async function safeDbOperation(operation, payload, id = null) {
 }
 
 // POST /api/blogs — Create a new blog with optional image
-router.post('/', upload.single('image'), async (req, res) => {
+router.post(
+    '/',
+    upload.fields([
+        { name: 'image', maxCount: 1 },
+        { name: 'social_image', maxCount: 1 }
+    ]),
+    async (req, res) => {
     try {
         const adminId = req.user?.id || '3417e953-65a4-4f74-aefb-85847c4644ab';
         const {
@@ -271,13 +335,37 @@ router.post('/', upload.single('image'), async (req, res) => {
             return res.status(400).json({ error: 'Title and content are required' });
         }
 
+        // The article id is chosen up-front so the social image can be stored under it (and so the row keeps that id)
+        const articleId = crypto.randomUUID();
         let image_url = null;
         let image_path = null;
+        let social_image_url = null;
+        let social_image_path = null;
 
-        if (req.file) {
-            const result = await uploadImage(req.file);
+        const coverFile = req.files?.image?.[0];
+        const socialFile = req.files?.social_image?.[0];
+
+        // Validate the social image BEFORE any upload so a rejected request leaves no orphan files
+        if (socialFile) {
+            const check = validateSocialJpeg(socialFile);
+            if (!check.ok) {
+                return res.status(400).json({ error: check.error, code: 'INVALID_SOCIAL_IMAGE' });
+            }
+            if (!(await socialColumnExists(supabaseAdmin))) {
+                return res.status(409).json({ error: SOCIAL_COLUMN_MISSING_MESSAGE, code: 'SOCIAL_COLUMN_MISSING' });
+            }
+        }
+
+        if (coverFile) {
+            const result = await uploadImage(coverFile);
             image_url = result.url;
             image_path = result.path;
+        }
+
+        if (socialFile) {
+            const result = await uploadSocialImage(socialFile, articleId);
+            social_image_url = result.url;
+            social_image_path = result.path;
         }
 
         const formattedTopic = topic ? (typeof topic === 'string' ? topic.trim() : String(topic).trim()) : null;
@@ -329,6 +417,7 @@ router.post('/', upload.single('image'), async (req, res) => {
         }
 
         const insertPayload = {
+            id: articleId,
             admin_id: adminId,
             topic: formattedTopic || null,
             topic2: formattedTopic2 || null,
@@ -341,6 +430,7 @@ router.post('/', upload.single('image'), async (req, res) => {
             pull_quote_position: resolvedPullQuotePos,
             image_url,
             image_path,
+            social_image_url,
             slug: finalSlug,
             summary: summary || null,
             standfirst: standfirst || null,
@@ -371,10 +461,12 @@ router.post('/', upload.single('image'), async (req, res) => {
             } catch (_) {}
         }
 
-        const { data, error } = await safeDbOperation('insert', insertPayload);
+        const insertRes = await safeDbOperation('insert', insertPayload);
+        const { data, error } = insertRes;
 
         if (error) {
             if (image_path) await deleteImage(image_path);
+            if (social_image_path) await deleteImage(social_image_path);
             return res.status(500).json({ error: error.message || 'Failed to create blog' });
         }
 
@@ -385,7 +477,13 @@ router.post('/', upload.single('image'), async (req, res) => {
                 pull_quote_position: resolvedPullQuotePos,
             });
         }
-        return res.status(201).json({ blog: enrichBlogRecord(data) });
+        const createWarnings = (insertRes.droppedColumns || []).includes('social_image_url') && social_image_url
+            ? ['The social image was not saved because the social_image_url column is missing in the database.']
+            : [];
+        // Database save succeeded -> refresh this article's public share-preview page
+        const createRefresh = await refreshPublicPage(data);
+        const createAllWarnings = [...createWarnings, ...createRefresh.warnings];
+        return res.status(201).json({ blog: enrichBlogRecord(data), prerender: prerenderSummary(createRefresh.result), ...(createAllWarnings.length ? { warnings: createAllWarnings } : {}) });
     } catch (err) {
         console.error('Create blog error:', err);
         return res.status(500).json({ error: err?.message || 'Failed to create blog' });
@@ -393,7 +491,13 @@ router.post('/', upload.single('image'), async (req, res) => {
 });
 
 // PUT /api/blogs/:id — Update a blog
-router.put('/:id', upload.single('image'), async (req, res) => {
+router.put(
+    '/:id',
+    upload.fields([
+        { name: 'image', maxCount: 1 },
+        { name: 'social_image', maxCount: 1 }
+    ]),
+    async (req, res) => {
     try {
         const blogId = req.params.id;
         const {
@@ -427,6 +531,7 @@ router.put('/:id', upload.single('image'), async (req, res) => {
             linkedin_url,
             instagram_url,
             facebook_url,
+            remove_social_image,
         } = req.body;
 
         const { data: existing, error: fetchError } = await supabaseAdmin
@@ -518,19 +623,79 @@ router.put('/:id', upload.single('image'), async (req, res) => {
             }
         }
 
-        if (req.file) {
-            if (existing.image_path) {
-                await deleteImage(existing.image_path);
+        const coverFile = req.files?.image?.[0];
+        const socialFile = req.files?.social_image?.[0];
+        // A newly uploaded social image always wins over a remove request
+        const removeSocial = (remove_social_image === true || remove_social_image === 'true') && !socialFile;
+
+        // Validate BEFORE any upload so a rejected request leaves no orphan files
+        if (socialFile) {
+            const check = validateSocialJpeg(socialFile);
+            if (!check.ok) {
+                return res.status(400).json({ error: check.error, code: 'INVALID_SOCIAL_IMAGE' });
             }
-            const result = await uploadImage(req.file);
-            updateData.image_url = result.url;
-            updateData.image_path = result.path;
+        }
+        if (socialFile || removeSocial) {
+            if (!(await socialColumnExists(supabaseAdmin))) {
+                return res.status(409).json({ error: SOCIAL_COLUMN_MISSING_MESSAGE, code: 'SOCIAL_COLUMN_MISSING' });
+            }
+        }
+        if (removeSocial) updateData.social_image_url = null;
+
+        // Upload replacements first; nothing existing is deleted until the DB update succeeds.
+        const newUploadedPaths = [];
+        let data, error, droppedCols = [];
+        try {
+            if (coverFile) {
+                const result = await uploadImage(coverFile);
+                newUploadedPaths.push(result.path);
+                updateData.image_url = result.url;
+                updateData.image_path = result.path;
+            }
+
+            // Social image is independent; left untouched when no new file is sent
+            if (socialFile) {
+                const result = await uploadSocialImage(socialFile, blogId);
+                newUploadedPaths.push(result.path);
+                updateData.social_image_url = result.url;
+            }
+
+            const updateRes = await safeDbOperation('update', updateData, blogId);
+            ({ data, error } = updateRes);
+            droppedCols = updateRes.droppedColumns || [];
+        } catch (uploadOrDbErr) {
+            await Promise.all(newUploadedPaths.map(deleteImage));
+            throw uploadOrDbErr;
         }
 
-        const { data, error } = await safeDbOperation('update', updateData, blogId);
-
         if (error) {
+            // Remove only the files uploaded by this request
+            await Promise.all(newUploadedPaths.map(deleteImage));
             return res.status(500).json({ error: error.message || 'Failed to update blog' });
+        }
+
+        // DB saved: now it is safe to remove the replaced cover — unless the saved social image
+        // still points at that same file (e.g. ZIP-imported articles reuse the cover as social image).
+        const savedSocialUrl = (data && data.social_image_url) || updateData.social_image_url || existing.social_image_url || null;
+        const oldCoverStillUsedAsSocial = !!savedSocialUrl && (
+            savedSocialUrl === existing.image_url ||
+            (!!existing.image_path && savedSocialUrl.includes(existing.image_path))
+        );
+        if (coverFile && existing.image_path && existing.image_path !== updateData.image_path && !oldCoverStillUsedAsSocial) {
+            // Second line of defence: also skip if ANY other blog still references this file
+            await deleteStorageFileIfUnreferenced(supabaseAdmin, existing.image_path);
+        }
+
+        // Replaced or removed social image: delete the OLD file only if nothing references it any more.
+        // Cleanup never fails the request (the blog is already saved).
+        const newSocialUrl = (data && data.social_image_url !== undefined)
+            ? data.social_image_url
+            : (updateData.social_image_url !== undefined ? updateData.social_image_url : existing.social_image_url);
+        if (existing.social_image_url && existing.social_image_url !== newSocialUrl) {
+            const oldSocialPath = storagePathFromPublicUrl(existing.social_image_url, process.env.SUPABASE_URL);
+            if (oldSocialPath) {
+                await deleteStorageFileIfUnreferenced(supabaseAdmin, oldSocialPath);
+            }
         }
 
         if (blogId) {
@@ -543,7 +708,13 @@ router.put('/:id', upload.single('image'), async (req, res) => {
                 });
             }
         }
-        return res.status(200).json({ blog: enrichBlogRecord(data) });
+        const updateWarnings = droppedCols.includes('social_image_url') && (socialFile || removeSocial)
+            ? ['The social image change was not saved because the social_image_url column is missing in the database.']
+            : [];
+        // Database save succeeded -> refresh the public page (handles title/slug/image/SEO/status changes)
+        const updateRefresh = await refreshPublicPage(data, { previousSlug: existing.slug });
+        const updateAllWarnings = [...updateWarnings, ...updateRefresh.warnings];
+        return res.status(200).json({ blog: enrichBlogRecord(data), prerender: prerenderSummary(updateRefresh.result), ...(updateAllWarnings.length ? { warnings: updateAllWarnings } : {}) });
     } catch (err) {
         console.error('Update blog error:', err);
         return res.status(500).json({ error: err?.message || 'Failed to update article' });
@@ -570,7 +741,9 @@ router.patch('/:id/status', async (req, res) => {
 
         const { data, error } = await safeDbOperation('update', updateData, blogId);
         if (error) return res.status(500).json({ error: error.message });
-        return res.status(200).json({ blog: data });
+        // Published/unpublished/scheduled: create or remove the public page accordingly
+        const statusRefresh = await refreshPublicPage(data);
+        return res.status(200).json({ blog: data, prerender: prerenderSummary(statusRefresh.result), ...(statusRefresh.warnings.length ? { warnings: statusRefresh.warnings } : {}) });
     } catch (err) {
         return res.status(500).json({ error: err?.message || 'Failed to update article status' });
     }
@@ -583,7 +756,7 @@ router.delete('/:id', async (req, res) => {
 
         const { data: existing, error: fetchError } = await supabaseAdmin
             .from('blogs')
-            .select('image_path')
+            .select('*')
             .eq('id', blogId)
             .single();
 
@@ -611,12 +784,18 @@ router.delete('/:id', async (req, res) => {
             return res.status(500).json({ error: error.message });
         }
 
-        // Clean up image from storage
+        // Clean up images from storage — only files that no remaining blog still references
         if (existing.image_path) {
-            await deleteImage(existing.image_path);
+            await deleteStorageFileIfUnreferenced(supabaseAdmin, existing.image_path);
+        }
+        const deletedSocialPath = storagePathFromPublicUrl(existing.social_image_url, process.env.SUPABASE_URL);
+        if (deletedSocialPath && deletedSocialPath !== existing.image_path) {
+            await deleteStorageFileIfUnreferenced(supabaseAdmin, deletedSocialPath);
         }
 
-        return res.status(200).json({ message: 'Blog deleted successfully' });
+        // Deleted: remove its public page (never touches pages it did not generate)
+        const deleteRefresh = await refreshPublicPage(existing, { deleted: true });
+        return res.status(200).json({ message: 'Blog deleted successfully', prerender: prerenderSummary(deleteRefresh.result), ...(deleteRefresh.warnings.length ? { warnings: deleteRefresh.warnings } : {}) });
     } catch (err) {
         console.error('Delete blog error:', err);
         return res.status(500).json({ error: err?.message || 'Failed to delete article' });
@@ -713,8 +892,70 @@ router.post('/import-zip/inspect', zipUpload.single('zipFile'), async (req, res)
     }
 });
 
+const MAX_ZIP_COVER_BYTES = 5 * 1024 * 1024; // cover images only; social images use the stricter shared rules
+
+async function cleanupUploads(paths) {
+    if (!paths || !paths.length) return;
+    const { error } = await supabaseAdmin.storage.from('blogs').remove(paths);
+    if (error) console.error('Failed to clean up uploaded ZIP images:', error.message);
+}
+
+// Convert Base64 previews from ZIP inspection into permanent Supabase Storage URLs.
+// Each image is uploaded at most once; uploaded paths are returned so callers can clean up on DB failure.
+async function resolveZipImages(art, slug, articleId) {
+    const uploaded = [];
+    const out = {
+        coverUrl: art.image_url || null,
+        coverPath: art.image_url ? (art.image_path || null) : null,
+        socialUrl: null,
+        uploaded,
+    };
+
+    // ── Phase 1: validate EVERYTHING before any storage upload ──────────────
+    // An invalid image rejects the article here, so nothing is uploaded and nothing is written.
+    let cover = null;
+    if (typeof art.image_url === 'string' && art.image_url.startsWith('data:image/')) {
+        const m = art.image_url.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/);
+        const ext = m && { 'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp', 'image/gif': '.gif' }[m[1]];
+        if (!ext) throw new Error('Unsupported cover image data');
+        const buf = Buffer.from(m[2], 'base64');
+        if (buf.length > MAX_ZIP_COVER_BYTES) throw new Error('Cover image exceeds 5 MB');
+        cover = { buf, ext, mime: m[1] };
+    }
+
+    let socialBuf = null;
+    if (typeof art.social_image_url === 'string' && art.social_image_url.startsWith('data:')) {
+        const check = validateSocialDataUrl(art.social_image_url);
+        if (!check.ok) throw new Error(`Social image rejected: ${check.error}`);
+        socialBuf = check.buffer;
+    } else if (/^https?:\/\//i.test(art.social_image_url || '')) {
+        out.socialUrl = art.social_image_url;
+    }
+
+    // ── Phase 2: upload (clean up anything uploaded if a later step fails) ──
+    try {
+        if (cover) {
+            const r = await uploadBufferToStorage(cover.buf, `${slug}-cover${cover.ext}`, 'blog-images', cover.mime);
+            uploaded.push(r.path);
+            out.coverUrl = r.url;
+            out.coverPath = r.path;
+        }
+        if (socialBuf) {
+            // stored under the article id; the file name is generic and never used to find the image
+            if (!/^[0-9a-f-]{36}$/i.test(String(articleId || ''))) throw new Error('A valid article id is required to store a social image');
+            const r = await uploadBufferToStorage(socialBuf, 'social.jpg', `blog-images/social/${articleId}`, 'image/jpeg');
+            uploaded.push(r.path);
+            out.socialUrl = r.url;
+        }
+    } catch (e) {
+        await cleanupUploads(uploaded);
+        throw e;
+    }
+    return out;
+}
+
 // POST /api/blogs/import-zip/commit-batch — Save a batch of confirmed articles safely & idempotently
-router.post('/import-zip/commit-batch', async (req, res) => {
+router.post('/import-zip/commit-batch', express.json({ limit: '50mb' }), async (req, res) => {
     try {
         const adminId = req.user?.id || '3417e953-65a4-4f74-aefb-85847c4644ab';
         const { articles } = req.body;
@@ -726,6 +967,7 @@ router.post('/import-zip/commit-batch', async (req, res) => {
         const saved = [];
         const skipped = [];
         const failed = [];
+        const warnings = [];
 
         for (const art of articles) {
             try {
@@ -798,16 +1040,31 @@ router.post('/import-zip/commit-batch', async (req, res) => {
                         updated_at: new Date().toISOString()
                     };
 
-                    if (art.image_url) {
-                        updatePayload.image_url = art.image_url;
-                        updatePayload.image_path = art.image_path || null;
+                    const imgs = await resolveZipImages(art, generateSlug(art.slug || trimmedTitle), targetId);
+
+                    // Cover/social columns are only touched when the ZIP supplies a replacement.
+                    // No cover fallback is written to social_image_url on overwrite, so a
+                    // manually chosen social image is never clobbered.
+                    if (imgs.coverUrl) {
+                        updatePayload.image_url = imgs.coverUrl;
+                        updatePayload.image_path = imgs.coverPath;
+                    }
+                    if (imgs.socialUrl) {
+                        updatePayload.social_image_url = imgs.socialUrl;
                     }
 
-                    const { data: updated, error: updateErr } = await safeDbOperation('update', updatePayload, targetId);
+                    const zipUpdateRes = await safeDbOperation('update', updatePayload, targetId);
+                    const { data: updated, error: updateErr } = zipUpdateRes;
+                    if ((zipUpdateRes.droppedColumns || []).includes('social_image_url') && updatePayload.social_image_url) {
+                        warnings.push(`"${trimmedTitle}": social image not saved — blogs.social_image_url column is missing.`);
+                    }
                     if (updateErr) {
+                        await cleanupUploads(imgs.uploaded);
                         failed.push({ title: trimmedTitle, error: updateErr.message });
                     } else {
                         saved.push(enrichBlogRecord(updated));
+                        const zipUpdRefresh = await refreshPublicPage(updated, { previousSlug: art.existingMatch && art.existingMatch.slug });
+                        if (zipUpdRefresh.warnings.length) warnings.push(`"${trimmedTitle}": ${PRERENDER_FAILED_WARNING}`);
                     }
                     continue;
                 }
@@ -832,7 +1089,11 @@ router.post('/import-zip/commit-batch', async (req, res) => {
                     }
                 }
 
+                const newArticleId = crypto.randomUUID();
+                const imgs = await resolveZipImages(art, finalSlug, newArticleId);
+
                 const insertPayload = {
+                    id: newArticleId,
                     admin_id: adminId,
                     title: trimmedTitle,
                     content: art.content,
@@ -844,8 +1105,10 @@ router.post('/import-zip/commit-batch', async (req, res) => {
                     standfirst: art.standfirst || null,
                     reading_time: art.reading_time || null,
                     author_byline: art.author_byline || 'By M. Q. Siddiqui, Founder, Siddiqui.digital',
-                    image_url: art.image_url || null,
-                    image_path: art.image_path || null,
+                    image_url: imgs.coverUrl,
+                    image_path: imgs.coverPath,
+                    // Custom social image, else the cover's permanent URL (same upload, no duplicate)
+                    social_image_url: imgs.socialUrl || imgs.coverUrl || null,
                     image_caption: art.image_caption || null,
                     image_alt: art.image_alt || null,
                     pull_quote: art.pull_quote || null,
@@ -865,9 +1128,14 @@ router.post('/import-zip/commit-batch', async (req, res) => {
                     facebook_url: art.facebook_url ? String(art.facebook_url).trim() : null,
                 };
 
-                const { data: inserted, error: insertErr } = await safeDbOperation('insert', insertPayload);
+                const zipInsertRes = await safeDbOperation('insert', insertPayload);
+                const { data: inserted, error: insertErr } = zipInsertRes;
+                if ((zipInsertRes.droppedColumns || []).includes('social_image_url') && imgs.socialUrl) {
+                    warnings.push(`"${trimmedTitle}": social image not saved — blogs.social_image_url column is missing.`);
+                }
 
                 if (insertErr) {
+                    await cleanupUploads(imgs.uploaded);
                     failed.push({ title: trimmedTitle, error: insertErr.message });
                 } else if (inserted && inserted.id) {
                     if (art.linkedin_url || art.instagram_url || art.facebook_url) {
@@ -884,6 +1152,8 @@ router.post('/import-zip/commit-batch', async (req, res) => {
                         });
                     }
                     saved.push(enrichBlogRecord(inserted));
+                    const zipInsRefresh = await refreshPublicPage(inserted);
+                    if (zipInsRefresh.warnings.length) warnings.push(`"${trimmedTitle}": ${PRERENDER_FAILED_WARNING}`);
                 }
             } catch (singleErr) {
                 failed.push({
@@ -899,6 +1169,7 @@ router.post('/import-zip/commit-batch', async (req, res) => {
                 saved,
                 skipped,
                 failed,
+                warnings,
                 totalProcessed: articles.length,
                 successCount: saved.length,
                 skippedCount: skipped.length,
@@ -908,6 +1179,47 @@ router.post('/import-zip/commit-batch', async (req, res) => {
     } catch (err) {
         console.error('Commit batch error:', err);
         return res.status(500).json({ error: err.message || 'Batch commit failed' });
+    }
+});
+
+// ── Public page refresh: status + reliable manual retry ─────────────────────────────────────────────
+// GET  /api/blogs/prerender/status        configuration check, last sweep, pages that are still pending
+router.get('/prerender/status', async (req, res) => {
+    try {
+        return res.status(200).json(await blogPrerender.getStatus());
+    } catch (err) {
+        return res.status(500).json({ error: blogPrerender.friendlyError(err) });
+    }
+});
+
+// POST /api/blogs/prerender/sync          bring EVERY public page in line with the database (add ?dryRun=true to preview)
+router.post('/prerender/sync', async (req, res) => {
+    try {
+        const dryRun = req.query.dryRun === 'true' || (req.body && req.body.dryRun === true);
+        const result = await blogPrerender.reconcileAll({ db: supabaseAdmin, dryRun });
+        if (result.status === 'skipped') {
+            return res.status(409).json({ error: 'Public page refresh is not configured on the server (PUBLIC_SITE_ROOT is not set).', code: 'PRERENDER_NOT_CONFIGURED' });
+        }
+        return res.status(200).json(result);
+    } catch (err) {
+        console.error('Prerender sync error:', err);
+        return res.status(500).json({ error: blogPrerender.friendlyError(err) });
+    }
+});
+
+// POST /api/blogs/:id/prerender           retry the public page of ONE article
+router.post('/:id/prerender', async (req, res) => {
+    try {
+        const { data: row, error } = await supabaseAdmin.from('blogs').select('*').eq('id', req.params.id).single();
+        if (error || !row) return res.status(404).json({ error: 'Blog not found' });
+        const result = await blogPrerender.syncArticle(row, { db: supabaseAdmin });
+        if (result.status === 'skipped' && result.reason === 'not-configured') {
+            return res.status(409).json({ error: 'Public page refresh is not configured on the server (PUBLIC_SITE_ROOT is not set).', code: 'PRERENDER_NOT_CONFIGURED' });
+        }
+        return res.status(result.status === 'failed' ? 502 : 200).json({ prerender: prerenderSummary(result) });
+    } catch (err) {
+        console.error('Prerender retry error:', err);
+        return res.status(500).json({ error: blogPrerender.friendlyError(err) });
     }
 });
 

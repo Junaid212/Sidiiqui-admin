@@ -278,7 +278,7 @@ export default function Coupons() {
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1.5rem', alignItems: 'center' }}>
                     <div>
                         <label style={{ display: 'block', fontSize: '0.8rem', color: '#94a3b8', marginBottom: 4 }}>
-                            Sample Book Price (AED)
+                            Sample Book Price (USD)
                         </label>
                         <input
                             type="number"
@@ -340,7 +340,7 @@ export default function Coupons() {
                         <div>
                             <span style={{ fontSize: '0.75rem', color: '#94a3b8', display: 'block' }}>Original Price</span>
                             <span style={{ fontSize: '1.1rem', color: '#e2e8f0', textDecoration: 'line-through' }}>
-                                AED {sampleBookPrice.toFixed(2)}
+                                USD {sampleBookPrice.toFixed(2)}
                             </span>
                         </div>
                         <div style={{ color: '#22c55e', fontWeight: 700, fontSize: '1.2rem' }}>
@@ -349,13 +349,13 @@ export default function Coupons() {
                         <div>
                             <span style={{ fontSize: '0.75rem', color: '#94a3b8', display: 'block' }}>Customer Saves</span>
                             <span style={{ fontSize: '1.1rem', color: '#f59e0b', fontWeight: 600 }}>
-                                AED {calcSaved.toFixed(2)}
+                                USD {calcSaved.toFixed(2)}
                             </span>
                         </div>
                         <div style={{ borderLeft: '1px solid rgba(255,255,255,0.1)', paddingLeft: '1.2rem' }}>
                             <span style={{ fontSize: '0.75rem', color: '#86efac', display: 'block', fontWeight: 600 }}>Final Reduced Price</span>
                             <span style={{ fontSize: '1.4rem', color: '#22c55e', fontWeight: 800 }}>
-                                AED {calcFinalPrice.toFixed(2)}
+                                USD {calcFinalPrice.toFixed(2)}
                             </span>
                         </div>
                     </div>
@@ -516,7 +516,7 @@ export default function Coupons() {
 
                                         {/* Min Order */}
                                         <td style={{ padding: '14px 20px', color: '#94a3b8' }}>
-                                            {c.min_order_amount ? `AED ${c.min_order_amount}` : 'None'}
+                                            {c.min_order_amount ? `USD ${c.min_order_amount}` : 'None'}
                                         </td>
 
                                         {/* Redemptions */}
@@ -731,7 +731,7 @@ export default function Coupons() {
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: 18 }}>
                                 <div>
                                     <label style={{ display: 'block', fontSize: '0.85rem', color: '#cbd5e1', fontWeight: 600, marginBottom: 6 }}>
-                                        Min Order (AED)
+                                        Min Order (USD)
                                     </label>
                                     <input
                                         type="number"

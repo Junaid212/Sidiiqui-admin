@@ -299,7 +299,7 @@ router.delete('/:id', async (req, res) => {
 // ── POST /api/coupons/validate (or /api/public/coupons/validate) ──
 // Matches coupon code case-insensitively, checks is_active and expiry,
 // returns discount percentage.
-router.post('/validate', async (req, res) => {
+const validateCoupon = async (req, res) => {
     try {
         const { code, subtotal = 0 } = req.body;
         if (!code || typeof code !== 'string') {
@@ -357,7 +357,7 @@ router.post('/validate', async (req, res) => {
         if (coupon.min_order_amount && subtotal > 0 && subtotal < coupon.min_order_amount) {
             return res.status(400).json({
                 valid: false,
-                error: `Coupon code '${cleanCode}' requires a minimum order of AED ${coupon.min_order_amount}.`
+                error: `Coupon code '${cleanCode}' requires a minimum order of USD ${coupon.min_order_amount}.`
             });
         }
 
@@ -378,6 +378,15 @@ router.post('/validate', async (req, res) => {
         console.error('[Coupons VALIDATE] Error:', err);
         return res.status(500).json({ valid: false, error: 'Failed to validate coupon code' });
     }
-});
+};
+
+// Admin surface: mounted at /api/coupons behind requireAdmin (list / create / update / delete / validate).
+router.post('/validate', validateCoupon);
+
+// Public surface: mounted at /api/public/coupons. It exposes ONLY coupon validation, which the
+// checkout needs. It must never share the admin router, which has no authentication of its own.
+const publicRouter = express.Router();
+publicRouter.post('/validate', validateCoupon);
 
 module.exports = router;
+module.exports.publicRouter = publicRouter;
