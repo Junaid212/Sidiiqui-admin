@@ -34,7 +34,7 @@ export const entitlements = {
 /** Digital Companion PDF files */
 export const companion = {
     list: () => apiRequest('/companion-files'),
-    upload: (file) => { const fd = new FormData(); fd.append('file', file); return apiRequest('/companion-files', { method: 'POST', body: fd }); },
+    upload: (file, kind) => { const fd = new FormData(); if (kind === 'book_pdf') fd.append('kind', 'book_pdf'); fd.append('file', file); return apiRequest('/companion-files', { method: 'POST', body: fd }); },
     retry: (id) => apiRequest(`/companion-files/${id}/retry`, { method: 'POST', body: {} }),
     makeCurrent: (id) => apiRequest(`/companion-files/${id}/make-current`, { method: 'POST', body: {} }),
     remove: (id) => apiRequest(`/companion-files/${id}`, { method: 'DELETE' }),

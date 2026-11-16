@@ -29,7 +29,14 @@ export async function apiRequest(endpoint, options = {}) {
     }
 
     const response = await fetch(`${API_URL}${endpoint}`, config);
-    const data = await response.json();
+    // A proxy in front of the server (for example nginx refusing a large upload) answers with an HTML page, not JSON.
+    let data;
+    try { data = await response.json(); }
+    catch {
+        if (response.status === 413) throw new Error('The file is too large for the server. Please contact the developer.');
+        if (response.status === 502 || response.status === 504) throw new Error('The server took too long to answer. Please try again, or contact the developer if it keeps happening.');
+        throw new Error(`The server sent an unexpected answer (${response.status}). Please try again.`);
+    }
 
     if (!response.ok) {
         throw new Error(data.error || 'Request failed');

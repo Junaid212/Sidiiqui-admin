@@ -6,10 +6,12 @@ import Link from '@tiptap/extension-link';
 import Image from '@tiptap/extension-image';
 import TextAlign from '@tiptap/extension-text-align';
 import Placeholder from '@tiptap/extension-placeholder';
+import { Table, TableRow, TableHeader, TableCell } from '@tiptap/extension-table';
 import { uploadEditorImage } from '../../services/blogService';
 import toast from 'react-hot-toast';
 
-export default function RichTextEditor({ content, onChange, placeholder = 'Write your editorial article here...' }) {
+// tables: only the Online Reading chapter editor turns this on. Without it the editor behaves exactly as before (blog articles).
+export default function RichTextEditor({ content, onChange, placeholder = 'Write your editorial article here...', tables = false }) {
     const fileInputRef = useRef(null);
     const [uploadingImage, setUploadingImage] = useState(false);
     const [linkModalOpen, setLinkModalOpen] = useState(false);
@@ -42,6 +44,7 @@ export default function RichTextEditor({ content, onChange, placeholder = 'Write
             Placeholder.configure({
                 placeholder,
             }),
+            ...(tables ? [Table.configure({ resizable: false }), TableRow, TableHeader, TableCell] : []),
         ],
         content: content || '',
         onUpdate: ({ editor: ed }) => {
@@ -58,7 +61,7 @@ export default function RichTextEditor({ content, onChange, placeholder = 'Write
         const currentHtml = editor.getHTML();
         if (content !== undefined && content !== currentHtml) {
             // Check if content is plain text vs HTML
-            const isHtml = /<\/?(p|h[1-6]|ul|ol|li|blockquote|strong|b|em|i|u|s|span|div|a|img|hr)[^>]*>/i.test(content || '');
+            const isHtml = /<\/?(p|h[1-6]|ul|ol|li|blockquote|strong|b|em|i|u|s|span|div|a|img|hr|table)[^>]*>/i.test(content || '');
             if (!isHtml && content) {
                 // Convert plain text paragraphs into HTML paragraphs for TipTap
                 const converted = content
@@ -326,6 +329,26 @@ export default function RichTextEditor({ content, onChange, placeholder = 'Write
                         {uploadingImage ? '⏳ Uploading...' : '🖼️ Image'}
                     </button>
                 </div>
+
+                {tables && (
+                    <>
+                        <div className="tiptap-toolbar-divider" />
+                        {/* TABLES (chapter editor only) */}
+                        <div className="tiptap-toolbar-group">
+                            <button type="button" className="tiptap-toolbar-btn" onClick={() => editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()} title="Insert a table (3 x 3)" data-testid="table-insert">▦ Table</button>
+                            {editor.isActive('table') && (
+                                <>
+                                    <button type="button" className="tiptap-toolbar-btn" onClick={() => editor.chain().focus().addRowAfter().run()} title="Add a row below">+ Row</button>
+                                    <button type="button" className="tiptap-toolbar-btn" onClick={() => editor.chain().focus().addColumnAfter().run()} title="Add a column to the right">+ Col</button>
+                                    <button type="button" className="tiptap-toolbar-btn" onClick={() => editor.chain().focus().deleteRow().run()} title="Delete this row">− Row</button>
+                                    <button type="button" className="tiptap-toolbar-btn" onClick={() => editor.chain().focus().deleteColumn().run()} title="Delete this column">− Col</button>
+                                    <button type="button" className="tiptap-toolbar-btn" onClick={() => editor.chain().focus().toggleHeaderRow().run()} title="Turn the first row into a header (or back)">Header</button>
+                                    <button type="button" className="tiptap-toolbar-btn" onClick={() => { if (window.confirm('Delete the whole table?')) editor.chain().focus().deleteTable().run(); }} title="Delete the table">✕ Table</button>
+                                </>
+                            )}
+                        </div>
+                    </>
+                )}
 
                 <div className="tiptap-toolbar-divider" />
 

@@ -235,7 +235,7 @@ export default function ReadingContent() {
                                             </div>
                                             {htmlMode
                                                 ? <textarea className="form-textarea" aria-label="Chapter HTML" rows={30} value={draft.html} onChange={(e) => { setDraft({ ...draft, html: e.target.value }); setDirty(true); }} style={{ fontFamily: 'monospace', width: '100%' }} />
-                                                : <RichTextEditor key={`${chapter.id}-${chapter.version}`} content={draft.html} placeholder="Write the chapter here…" onChange={(h) => { setDraft((d) => (d.html === h ? d : { ...d, html: h })); setDirty(true); }} />}
+                                                : <RichTextEditor tables key={`${chapter.id}-${chapter.version}`} content={draft.html} placeholder="Write the chapter here…" onChange={(h) => { setDraft((d) => (d.html === h ? d : { ...d, html: h })); setDirty(true); }} />}
                                             <div className="form-actions" style={{ marginTop: 14, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                                                 <button className="btn btn--primary" onClick={saveChapter} disabled={busy || !dirty} data-testid="save-chapter"><HiOutlineSave /> Save draft</button>
                                                 <button className="btn btn--outline" onClick={() => setPreview(true)} data-testid="preview-chapter"><HiOutlineEye /> Preview</button>

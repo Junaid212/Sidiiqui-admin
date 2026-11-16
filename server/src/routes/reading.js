@@ -5,6 +5,7 @@
  * and the "book" knowledge source used by Ask SID is kept in step automatically.
  */
 const express = require('express');
+const crypto = require('crypto');
 const { supabaseAdmin } = require('../config/supabase');
 const { sanitizeChapterHtml, uniqueSlug, slugify, indexPublishedChapter, removeChapterIndex } = require('../utils/readerContent');
 
@@ -189,7 +190,13 @@ router.put('/books/:id/order', guardId, async (req, res) => {
 // Each "Heading 1" starts a chapter. Nothing is published: chapters are created as DRAFTS (appended after the existing ones).
 // dryRun=true only reports what would be created, so the administrator can check it first.
 const multer = require('multer');
-const docxUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024, files: 1 } });
+const DOCX_MAX_MB = 50;
+const docxUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: DOCX_MAX_MB * 1024 * 1024, files: 1 } });
+// Figures: the editor only accepts https images, so each picture inside the Word file is stored in the public "blogs" image bucket
+// under an unguessable name and referenced by its URL (embedded base64 pictures would be removed by the sanitizer).
+const IMG_BUCKET = 'blogs';
+const IMG_TYPES = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/gif': 'gif', 'image/webp': 'webp' };
+const IMG_MAX_BYTES = 10 * 1024 * 1024;
 function splitByHeading(html, fallbackTitle) {
     const parts = []; const re = /<h1[^>]*>([\s\S]*?)<\/h1>/gi; let m; let lastIdx = 0; let title = null;
     const text = (x) => x.replace(/<[^>]*>/g, '').replace(/&amp;/g, '&').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
@@ -202,21 +209,40 @@ function splitByHeading(html, fallbackTitle) {
     if (title !== null) parts.push({ title, html: rest }); else if (text(rest)) parts.push({ title: fallbackTitle, html: rest });
     return parts.filter((p) => text(p.html).length > 0 || p.title);
 }
-router.post('/books/:id/import-docx', guardId, (req, res, next) => docxUpload.single('file')(req, res, (err) => (err ? fail(res, err.code === 'LIMIT_FILE_SIZE' ? 413 : 400, err.code === 'LIMIT_FILE_SIZE' ? 'The file is larger than 15 MB.' : 'Upload failed.') : next())), async (req, res) => {
+router.post('/books/:id/import-docx', guardId, (req, res, next) => docxUpload.single('file')(req, res, (err) => (err ? fail(res, err.code === 'LIMIT_FILE_SIZE' ? 413 : 400, err.code === 'LIMIT_FILE_SIZE' ? `The file is larger than ${DOCX_MAX_MB} MB.` : 'Upload failed.') : next())), async (req, res) => {
+    req.setTimeout(10 * 60 * 1000); res.setTimeout(10 * 60 * 1000); // a large file with many figures takes a while
     const book = await loadBook(req.params.id);
     if (!book) return fail(res, 404, 'Book not found');
     const f = req.file;
     if (!f) return fail(res, 400, 'Choose a Word (.docx) file.');
     if (f.buffer.slice(0, 2).toString('latin1') !== 'PK') return fail(res, 400, 'This is not a Word (.docx) document.');
-    let converted;
-    try { converted = await require('mammoth').convertToHtml({ buffer: f.buffer }); }
-    catch { return fail(res, 422, 'The Word file could not be read. Save it again as .docx and retry.'); }
+    const dryRun = req.body.dryRun === 'true';
+    let converted; let imageCount = 0; let imageSkipped = 0; const stored = [];
+    try {
+        const mammoth = require('mammoth');
+        converted = await mammoth.convertToHtml({ buffer: f.buffer }, { convertImage: mammoth.images.imgElement(async (image) => {
+            imageCount++;
+            const ext = IMG_TYPES[String(image.contentType || '').toLowerCase()];
+            if (dryRun) return { src: 'https://example.invalid/preview.' + (ext || 'png'), alt: image.altText || '' }; // nothing is stored in a check run
+            const buf = await image.readAsBuffer();
+            if (!ext || buf.length > IMG_MAX_BYTES) { imageSkipped++; return { src: '' }; }
+            const name = `reader/${book.id}/${crypto.randomUUID()}.${ext}`;
+            const up = await supabaseAdmin.storage.from(IMG_BUCKET).upload(name, buf, { contentType: image.contentType, upsert: false });
+            if (up.error) throw new Error('Figure upload failed: ' + up.error.message);
+            stored.push(name);
+            return { src: supabaseAdmin.storage.from(IMG_BUCKET).getPublicUrl(name).data.publicUrl, alt: image.altText || '' };
+        }) });
+    } catch (e) {
+        if (stored.length) await supabaseAdmin.storage.from(IMG_BUCKET).remove(stored).catch(() => {}); // nothing was created: do not leave the figures behind
+        return fail(res, 422, /Figure upload failed/.test(e.message) ? e.message : 'The Word file could not be read. Save it again as .docx and retry.');
+    }
     const fallback = String(f.originalname || 'Chapter').replace(/\.docx$/i, '').slice(0, 120) || 'Chapter';
-    const chapters = splitByHeading(sanitizeChapterHtml(converted.value), fallback);
-    if (!chapters.length) return fail(res, 422, 'No text was found in this document.');
-    if (chapters.length > 80) return fail(res, 422, 'More than 80 chapters were found. Check that only chapter titles use "Heading 1".');
+    const dropFigures = async () => { if (stored.length) await supabaseAdmin.storage.from(IMG_BUCKET).remove(stored).catch(() => {}); };
+    const chapters = splitByHeading(sanitizeChapterHtml(converted.value.replace(/<img\b[^>]*\bsrc=""[^>]*>/gi, '')), fallback);
+    if (!chapters.length) { await dropFigures(); return fail(res, 422, 'No text was found in this document.'); }
+    if (chapters.length > 80) { await dropFigures(); return fail(res, 422, 'More than 80 chapters were found. Check that only chapter titles use "Heading 1".'); }
     const summary = chapters.map((c) => ({ title: c.title.slice(0, 200), words: c.html.replace(/<[^>]*>/g, ' ').split(/\s+/).filter(Boolean).length }));
-    if (req.body.dryRun === 'true') return res.json({ dryRun: true, chapters: summary, warnings: converted.messages.slice(0, 5).map((m) => m.message) });
+    if (dryRun) return res.json({ dryRun: true, chapters: summary, figures: imageCount, warnings: converted.messages.slice(0, 5).map((m) => m.message) });
     const { data: last } = await supabaseAdmin.from('reader_chapters').select('position').eq('book_id', book.id).order('position', { ascending: false }).limit(1);
     let position = (last && last[0] && last[0].position) || 0;
     const created = [];
@@ -228,7 +254,7 @@ router.post('/books/:id/import-docx', guardId, (req, res, next) => docxUpload.si
         created.push(data);
     }
     await audit(req, 'reading.book.import_docx', 'reader_book', book.id, { chapters: created.length });
-    res.status(201).json({ created: created.length, chapters: created });
+    res.status(201).json({ created: created.length, chapters: created, figures: imageCount - imageSkipped, figuresSkipped: imageSkipped });
 });
 
 module.exports = router;

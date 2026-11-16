@@ -1447,6 +1447,13 @@ a:hover {
   margin: 0 0 14px 0;
 }
 
+/* tables in the Online Reading chapter editor */
+.tiptap-content .ProseMirror table { border-collapse: collapse; width: 100%; margin: 0 0 16px 0; table-layout: fixed; }
+.tiptap-content .ProseMirror th,
+.tiptap-content .ProseMirror td { border: 1px solid rgba(255,255,255,0.25); padding: 6px 10px; vertical-align: top; position: relative; }
+.tiptap-content .ProseMirror th { background: rgba(255,255,255,0.08); font-weight: 700; text-align: left; }
+.tiptap-content .ProseMirror .selectedCell { background: rgba(137,180,250,0.25); }
+
 .tiptap-content .ProseMirror h2 {
   font-size: 1.35rem;
   font-weight: 700;
