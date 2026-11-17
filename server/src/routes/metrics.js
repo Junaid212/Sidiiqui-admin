@@ -34,10 +34,7 @@ router.get('/signins', async (req, res) => {
 
         // If user_activity has no recorded ebook events, check orders table for paid purchasers
         if (ebookUsers.size === 0) {
-            const { data: orderUsers } = await supabaseAdmin
-                .from('orders')
-                .select('user_id, email')
-                .in('status', ['paid', 'successful']);
+            const { data: orderUsers } = await require('../utils/testOrders').realPaidOrders('user_id, email');
 
             (orderUsers || []).forEach(o => {
                 const identifier = o.user_id || o.email;

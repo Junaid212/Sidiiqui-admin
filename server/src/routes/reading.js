@@ -7,7 +7,7 @@
 const express = require('express');
 const crypto = require('crypto');
 const { supabaseAdmin } = require('../config/supabase');
-const { sanitizeChapterHtml, uniqueSlug, slugify, indexPublishedChapter, removeChapterIndex } = require('../utils/readerContent');
+const { sanitizeChapterHtml, uniqueSlug, slugify, indexPublishedChapter, removeChapterIndex, demoteParagraphHeadings } = require('../utils/readerContent');
 
 const router = express.Router();
 router.use(express.json({ limit: '3mb' })); // chapter bodies are larger than the 100 kb default; this only runs after requireAdmin
@@ -238,11 +238,13 @@ router.post('/books/:id/import-docx', guardId, (req, res, next) => docxUpload.si
     }
     const fallback = String(f.originalname || 'Chapter').replace(/\.docx$/i, '').slice(0, 120) || 'Chapter';
     const dropFigures = async () => { if (stored.length) await supabaseAdmin.storage.from(IMG_BUCKET).remove(stored).catch(() => {}); };
-    const chapters = splitByHeading(sanitizeChapterHtml(converted.value.replace(/<img\b[^>]*\bsrc=""[^>]*>/gi, '')), fallback);
+    // Only Word Heading 1/2/3 are headings (Heading 1 = a new chapter). Everything else, including a heading style used on body text, is a normal paragraph.
+    const tidy = demoteParagraphHeadings(converted.value.replace(/<img\b[^>]*\bsrc=""[^>]*>/gi, ''));
+    const chapters = splitByHeading(sanitizeChapterHtml(tidy.html), fallback);
     if (!chapters.length) { await dropFigures(); return fail(res, 422, 'No text was found in this document.'); }
     if (chapters.length > 80) { await dropFigures(); return fail(res, 422, 'More than 80 chapters were found. Check that only chapter titles use "Heading 1".'); }
     const summary = chapters.map((c) => ({ title: c.title.slice(0, 200), words: c.html.replace(/<[^>]*>/g, ' ').split(/\s+/).filter(Boolean).length }));
-    if (dryRun) return res.json({ dryRun: true, chapters: summary, figures: imageCount, warnings: converted.messages.slice(0, 5).map((m) => m.message) });
+    if (dryRun) return res.json({ dryRun: true, chapters: summary, figures: imageCount, demotedHeadings: tidy.demoted, warnings: converted.messages.slice(0, 5).map((m) => m.message) });
     const { data: last } = await supabaseAdmin.from('reader_chapters').select('position').eq('book_id', book.id).order('position', { ascending: false }).limit(1);
     let position = (last && last[0] && last[0].position) || 0;
     const created = [];
@@ -254,7 +256,75 @@ router.post('/books/:id/import-docx', guardId, (req, res, next) => docxUpload.si
         created.push(data);
     }
     await audit(req, 'reading.book.import_docx', 'reader_book', book.id, { chapters: created.length });
-    res.status(201).json({ created: created.length, chapters: created, figures: imageCount - imageSkipped, figuresSkipped: imageSkipped });
+    res.status(201).json({ created: created.length, chapters: created, figures: imageCount - imageSkipped, figuresSkipped: imageSkipped, demotedHeadings: tidy.demoted });
+});
+
+// Repair chapters that are already imported: long "headings" that are really paragraphs (and Heading 4-6) become normal paragraphs again.
+// Without apply:true it only reports. With apply:true (and a reason) it rewrites those chapters, re-indexes the published ones and audits it.
+router.post('/books/:id/repair-headings', guardId, async (req, res) => {
+    const book = await loadBook(req.params.id);
+    if (!book) return fail(res, 404, 'Book not found');
+    const { data: chs, error } = await supabaseAdmin.from('reader_chapters').select('id,title,content_html,status,version').eq('book_id', book.id).order('position', { ascending: true });
+    if (error) return migrated(res, error);
+    const plan = [];
+    for (const c of chs || []) { const r = demoteParagraphHeadings(c.content_html); if (r.demoted > 0) plan.push({ c, html: r.html, demoted: r.demoted, samples: r.samples }); }
+    const summary = plan.map((p) => ({ id: p.c.id, title: p.c.title, status: p.c.status, demoted: p.demoted, samples: p.samples }));
+    const total = plan.reduce((n, p) => n + p.demoted, 0);
+    if (req.body.apply !== true) return res.json({ dryRun: true, chapters: summary, total, chaptersChecked: (chs || []).length });
+    const reason = str(req.body.reason, 500);
+    if (!reason || reason.length < 5) return fail(res, 400, 'A written reason of at least 5 characters is required.');
+    // SAFETY COPY FIRST: the full text of every chapter that will change is saved (in the audit log) before anything is rewritten.
+    // If the copy cannot be saved, nothing is changed. "Undo last fix" restores from it.
+    const batch = crypto.randomUUID();
+    const after = new Map(plan.map((p) => [p.c.id, sanitizeChapterHtml(p.html)]));
+    const sha = (s) => crypto.createHash('sha1').update(String(s || '')).digest('hex');
+    if (plan.length) {
+        const saved = await supabaseAdmin.from('admin_audit_log').insert(plan.map((p) => ({ actor_id: req.user.id, actor_label: req.user.email, action: 'reading.chapter.repair_snapshot', target_type: 'reader_chapter', target_id: p.c.id,
+            detail: { batch, book: book.id, title: p.c.title, before: p.c.content_html, afterHash: sha(after.get(p.c.id)) } })));
+        if (saved.error) return fail(res, 500, `Nothing was changed: the safety copy could not be saved (${saved.error.message}).`);
+    }
+    for (const p of plan) {
+        const { data, error: uerr } = await supabaseAdmin.from('reader_chapters').update({ content_html: after.get(p.c.id), version: p.c.version + 1 }).eq('id', p.c.id).select().single();
+        if (uerr) return fail(res, 500, `Stopped at "${p.c.title}": ${uerr.message}. Chapters before it were changed; use "Undo last fix" to put everything back.`);
+        if (data.status === 'published') await indexPublishedChapter(supabaseAdmin, book, data);
+    }
+    await audit(req, 'reading.chapters.repair_headings', 'reader_book', book.id, { reason, batch, chapters: plan.length, paragraphs: total });
+    res.json({ repaired: plan.length, paragraphs: total, chapters: summary, canUndo: plan.length > 0 });
+});
+
+// Undo the most recent "Fix headings" for this book: each chapter goes back to the exact text saved before the fix. A chapter that was
+// edited after the fix is NOT touched (its newer edits would be lost); it is reported as skipped. Without apply:true it only reports.
+router.post('/books/:id/repair-headings/undo', guardId, async (req, res) => {
+    const book = await loadBook(req.params.id);
+    if (!book) return fail(res, 404, 'Book not found');
+    const sha = (s) => crypto.createHash('sha1').update(String(s || '')).digest('hex');
+    const { data: undone } = await supabaseAdmin.from('admin_audit_log').select('detail').eq('action', 'reading.chapters.repair_undo').order('id', { ascending: false }).limit(100);
+    const doneBatches = new Set((undone || []).map((r) => r.detail && r.detail.batch).filter(Boolean));
+    const { data: snaps, error } = await supabaseAdmin.from('admin_audit_log').select('target_id,detail').eq('action', 'reading.chapter.repair_snapshot').order('id', { ascending: false }).limit(1000);
+    if (error) return fail(res, 500, error.message);
+    const mine = (snaps || []).filter((s) => s.detail && s.detail.book === book.id && !doneBatches.has(s.detail.batch));
+    if (!mine.length) return fail(res, 404, 'There is no "Fix headings" to undo for this book.');
+    const batch = mine[0].detail.batch; const rows = mine.filter((s) => s.detail.batch === batch);
+    const plan = [];
+    for (const s of rows) {
+        const cur = await loadChapter(s.target_id);
+        if (!cur) { plan.push({ id: s.target_id, title: s.detail.title, restore: false, why: 'the chapter no longer exists' }); continue; }
+        if (sha(cur.content_html) !== s.detail.afterHash) { plan.push({ id: cur.id, title: cur.title, restore: false, why: 'it was edited after the fix, so it was left as it is' }); continue; }
+        plan.push({ id: cur.id, title: cur.title, restore: true, cur, before: s.detail.before });
+    }
+    const out = plan.map((p) => ({ id: p.id, title: p.title, restore: p.restore, why: p.why }));
+    if (req.body.apply !== true) return res.json({ dryRun: true, chapters: out, willRestore: plan.filter((p) => p.restore).length });
+    const reason = str(req.body.reason, 500);
+    if (!reason || reason.length < 5) return fail(res, 400, 'A written reason of at least 5 characters is required.');
+    let restored = 0;
+    for (const p of plan.filter((x) => x.restore)) {
+        const { data, error: uerr } = await supabaseAdmin.from('reader_chapters').update({ content_html: p.before, version: p.cur.version + 1 }).eq('id', p.id).select().single();
+        if (uerr) return fail(res, 500, `Stopped at "${p.title}": ${uerr.message}`);
+        if (data.status === 'published') await indexPublishedChapter(supabaseAdmin, book, data);
+        restored++;
+    }
+    await audit(req, 'reading.chapters.repair_undo', 'reader_book', book.id, { reason, batch, restored, skipped: plan.length - restored });
+    res.json({ restored, skipped: plan.length - restored, chapters: out });
 });
 
 module.exports = router;

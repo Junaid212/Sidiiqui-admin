@@ -136,4 +136,107 @@ router.post('/reconcile', async (req, res) => {
     res.json(out);
 });
 
+// ---------------------------------------------------------------------------------------------------------------------
+// Grant access by hand, and import Payhip orders whose webhook never arrived. Both create ordinary order rows (the same shape
+// the webhook writes) and then run the normal order -> access rule, so the customer sees them in My Orders and gets the reader,
+// downloads and Ask SID exactly as a webhook purchase would. Every write needs a written reason and is audited.
+// ---------------------------------------------------------------------------------------------------------------------
+const imp = require('../utils/orderImport');
+const audit = (req, action, target, detail) => supabaseAdmin.from('admin_audit_log').insert([{ actor_id: req.user.id, actor_label: req.user.email, action, target_type: 'order', target_id: String(target).slice(0, 80), detail }]);
+const reasonOf = (b) => (typeof (b && b.reason) === 'string' ? b.reason.trim() : '');
+
+router.post('/grant', async (req, res) => {
+    const email = sync.normalizeEmail(req.body && req.body.email);
+    const edition = req.body && req.body.edition;
+    const reason = reasonOf(req.body);
+    if (!imp.EMAIL_RE.test(email)) return fail(res, 400, 'A valid e-mail address is required.');
+    if (!['online', 'companion'].includes(edition)) return fail(res, 400, 'edition must be "online" or "companion".');
+    if (reason.length < 5 || reason.length > 500) return fail(res, 400, 'A written reason of at least 5 characters is required.');
+    const { data: act, error: aerr } = await supabaseAdmin.from('user_entitlements').select('id,edition').eq('email', email).eq('status', 'active').maybeSingle();
+    if (aerr) return notInstalled(res, aerr);
+    if (act && (act.edition === 'companion' || act.edition === edition)) return fail(res, 409, `This person already has active ${act.edition === 'companion' ? 'Digital Companion' : 'Online Reading'} access.`);
+    // Optional, Digital Companion only: the Ask SID question total and how many months Ask SID access lasts.
+    const b = req.body || {};
+    const questions = b.questions === undefined || b.questions === null || b.questions === '' ? null : Number(b.questions);
+    const months = b.months === undefined || b.months === null || b.months === '' ? null : Number(b.months);
+    if (questions !== null && (!Number.isInteger(questions) || questions < 1 || questions > 2000)) return fail(res, 400, 'Ask SID questions must be a whole number from 1 to 2000.');
+    if (months !== null && (!Number.isInteger(months) || months < 1 || months > 60)) return fail(res, 400, 'Duration must be a whole number of months from 1 to 60.');
+    if (edition === 'online' && (questions !== null || months !== null)) return fail(res, 400, 'Online Reading has no Ask SID questions and no end date. Leave those fields empty, or choose Digital Companion.');
+
+    // A complimentary grant must NEVER take one of the 200 launch positions. The database gives a position to any Companion grant dated
+    // on or after the launch start, so the grant is dated just before it (nothing else about the grant changes: the dates the customer
+    // sees are set below). If the offer is not configured at all we stop rather than risk it.
+    const { data: cfg } = await supabaseAdmin.from('entitlement_settings').select('value').eq('key', 'ask_sid_limits').maybeSingle();
+    const limits = (cfg && cfg.value) || null;
+    if (!limits || !limits.launch_starts_at) return fail(res, 409, 'The launch offer is not configured, so a grant could take a launch position. Nothing was changed.');
+    const now = new Date();
+    const starts = new Date(limits.launch_starts_at);
+    const paidAt = starts <= now ? new Date(starts.getTime() - 1000) : now;
+
+    const row = imp.buildOrderRow({ email, name: String(b.name || '').trim().slice(0, 120) || 'Valued Reader', edition, txid: 'G' + Date.now().toString(36).toUpperCase(), provider: 'manual', actor: req.user.email, reason });
+    row.raw_metadata = { ...row.raw_metadata, complimentary: true }; // not a sale: kept out of order totals and revenue
+    const ins = await imp.insertOrder(supabaseAdmin, row);
+    if (!ins.ok) return fail(res, 500, `The order could not be created: ${ins.error.message}`);
+
+    const { data: g, error: gerr } = await supabaseAdmin.rpc('grant_entitlement_for_order', {
+        p_order_id: ins.row.id, p_email: email, p_user_id: null, p_edition: edition, p_is_upgrade: false, p_paid_at: paidAt.toISOString(), p_catalog: sync.CATALOG_KEY,
+    });
+    if (gerr) { await supabaseAdmin.from('orders').delete().eq('id', ins.row.id); return fail(res, 500, `The access could not be granted: ${gerr.message}`); }
+    if (g && g.launch_position) return fail(res, 500, 'Unexpected: a launch position was assigned. Please tell the developer.'); // cannot happen with the date above
+
+    let applied = { questions: null, expiresAt: null };
+    if (edition === 'companion' && g && g.entitlement_id) {
+        const expires = new Date(now); expires.setUTCMonth(expires.getUTCMonth() + (months || Number(limits.months) || 12));
+        const patch = { granted_at: now.toISOString(), ask_sid_expires_at: expires.toISOString() };
+        if (questions !== null) patch.total_question_limit = questions;
+        const up = await supabaseAdmin.from('user_entitlements').update(patch).eq('id', g.entitlement_id);
+        if (up.error) return fail(res, 500, `The grant was created but its dates could not be set: ${up.error.message}`);
+        applied = { questions: questions !== null ? questions : (g.total_limit || null), expiresAt: patch.ask_sid_expires_at };
+        await supabaseAdmin.from('entitlement_events').insert([{ entitlement_id: g.entitlement_id, email, order_id: ins.row.id, event_type: 'admin_complimentary_grant', detail: { reason, questions: applied.questions, months: months || Number(limits.months) || 12 }, actor_id: req.user.id, actor_label: req.user.email }]);
+    }
+    await audit(req, 'entitlement.manual_grant', ins.row.id, { email: email.replace(/^(.).*(@.*)$/, '$1***$2'), edition, reason, questions: applied.questions, months, result: (g && g.result) || null });
+    res.status(201).json({ ok: true, orderNumber: ins.row.order_number, edition, result: g, ...applied });
+});
+
+router.post('/import-payhip', async (req, res) => {
+    const csv = req.body && req.body.csv;
+    if (typeof csv !== 'string' || csv.length < 10) return fail(res, 400, 'Paste the contents of the Payhip export (CSV).');
+    if (csv.length > 90000) return fail(res, 413, 'The file is too large for one import. Split it into smaller parts.');
+    const out = imp.interpretPayhipCsv(csv);
+    if (!out.ok) return fail(res, 400, out.error);
+    // Orders already stored (by Payhip order id + what was bought) are never imported twice.
+    const ids = [...new Set(out.items.filter((i) => i.action === 'import').map((i) => i.txid))];
+    const have = new Set();
+    if (ids.length) {
+        const { data: ex, error } = await supabaseAdmin.from('orders').select('payhip_transaction_id,access_tier,is_upgrade').in('payhip_transaction_id', ids);
+        if (error) return fail(res, 500, error.message);
+        for (const o of ex || []) have.add(`${o.payhip_transaction_id}|${o.access_tier}|${o.is_upgrade === true}`);
+    }
+    const seen = new Set();
+    for (const it of out.items) {
+        if (it.action !== 'import') continue;
+        const k = `${it.txid}|${it.edition}|${it.isUpgrade}`;
+        if (have.has(k) || seen.has(k)) { it.action = 'skip'; it.reason = 'already imported'; } else seen.add(k);
+    }
+    const summary = { total: out.items.length, toImport: out.items.filter((i) => i.action === 'import').length, skipped: out.items.filter((i) => i.action === 'skip').length };
+    if (!(req.body && req.body.apply === true)) return res.json({ dryRun: true, columns: out.columns, summary, items: out.items });
+
+    const reason = reasonOf(req.body);
+    if (reason.length < 5 || reason.length > 500) return fail(res, 400, 'A written reason of at least 5 characters is required.');
+    // The administrator may untick rows in the preview: only the chosen file rows are imported (omitted = all that passed the check).
+    const only = Array.isArray(req.body.lines) ? new Set(req.body.lines.map(Number)) : null;
+    if (only && only.size === 0) return fail(res, 400, 'No rows were selected.');
+    const todo = out.items.filter((i) => i.action === 'import' && (!only || only.has(i.line))).sort((a, b) => String(a.date || '').localeCompare(String(b.date || ''))); // oldest first: an upgrade must follow its Online purchase
+    const done = [];
+    for (const it of todo) {
+        const row = imp.buildOrderRow({ email: it.email, name: it.name, edition: it.edition, isUpgrade: it.isUpgrade, txid: it.txid, amount: it.amount, currency: it.currency, createdAt: it.date || undefined, provider: 'payhip', actor: req.user.email, reason });
+        const ins = await imp.insertOrder(supabaseAdmin, row);
+        if (!ins.ok) { done.push({ line: it.line, ok: false, error: ins.error.message }); continue; }
+        const r = await sync.syncOrderEntitlement(ins.row);
+        done.push({ line: it.line, ok: r.ok !== false, edition: it.edition, result: r.result || r.skipped || r.error || null });
+    }
+    await audit(req, 'entitlement.import_payhip', `import-${Date.now()}`, { reason, imported: done.filter((d) => d.ok).length, failed: done.filter((d) => !d.ok).length, skipped: summary.skipped });
+    res.json({ dryRun: false, summary: { ...summary, selected: todo.length, imported: done.filter((d) => d.ok).length, failed: done.filter((d) => !d.ok).length }, results: done });
+});
+
 module.exports = router;

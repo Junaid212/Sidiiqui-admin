@@ -1,14 +1,13 @@
 const express = require('express');
 const router = express.Router();
 const { supabaseAdmin } = require('../config/supabase');
+const { realPaidOrders } = require('../utils/testOrders');
 
 // GET /api/stats/ebooks — Sum of successful order amounts (paid or successful)
 router.get('/ebooks', async (req, res) => {
     try {
-        const { data, error } = await supabaseAdmin
-            .from('orders')
-            .select('amount, currency, status')
-            .in('status', ['paid', 'successful']);
+        // Orders marked as tests are kept but never counted as sales.
+        const { data, error } = await realPaidOrders('amount, currency, status');
 
         if (error) {
             return res.status(500).json({ error: error.message });
@@ -184,11 +183,7 @@ router.get('/contact-messages-count', async (req, res) => {
 router.get('/timeline', async (req, res) => {
     try {
         // 1. Fetch paid orders with date, amount, currency
-        const { data: orders, error: ordersErr } = await supabaseAdmin
-            .from('orders')
-            .select('amount, currency, status, created_at')
-            .in('status', ['paid', 'successful'])
-            .order('created_at', { ascending: true });
+        const { data: orders, error: ordersErr } = await realPaidOrders('amount, currency, status, created_at', { orderBy: 'created_at' });
 
         if (ordersErr) {
             console.error('Timeline orders error:', ordersErr);

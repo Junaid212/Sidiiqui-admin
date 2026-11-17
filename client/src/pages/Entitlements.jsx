@@ -79,7 +79,78 @@ function Detail({ id, onClose, onChanged }) {
     );
 }
 
+function GrantModal({ onClose, onDone }) {
+    const [email, setEmail] = useState(''); const [edition, setEdition] = useState('companion'); const [reason, setReason] = useState(''); const [busy, setBusy] = useState(false);
+    const [questions, setQuestions] = useState(''); const [months, setMonths] = useState('');
+    const whole = (v, lo, hi) => v === '' || (/^\d+$/.test(v) && Number(v) >= lo && Number(v) <= hi);
+    const ok = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()) && reason.trim().length >= 5 && !busy && (edition === 'online' || (whole(questions, 1, 2000) && whole(months, 1, 60)));
+    async function go() {
+        setBusy(true);
+        try {
+            const body = { email: email.trim(), edition, reason: reason.trim() };
+            if (edition === 'companion') { if (questions !== '') body.questions = Number(questions); if (months !== '') body.months = Number(months); }
+            const r = await entitlements.grant(body); toast.success(`Complimentary access granted (${r.orderNumber})`); onDone(); onClose();
+        }
+        catch (e) { toast.error(errText(e)); } finally { setBusy(false); }
+    }
+    return (
+        <div className="modal-overlay" role="dialog" aria-modal="true"><div className="modal" style={{ maxWidth: 500 }} data-testid="grant-modal">
+            <div className="modal__header"><h2>Grant complimentary access</h2></div>
+            <div className="modal__body">
+                <p style={muted}>For someone who should have the book without paying (the owner testing, a reviewer, a gift). It is <b>not a sale</b>: it does not count in orders or revenue, and it never takes one of the 200 launch positions. The person signs in with this e-mail. To end it later, open the person in the list and choose <b>Revoke access</b>.</p>
+                <div className="form-group"><label>E-mail the person signs in with</label><input className="form-input" aria-label="E-mail" value={email} onChange={(e) => setEmail(e.target.value)} /></div>
+                <div className="form-group"><label>Edition</label><select className="form-input" aria-label="Edition" value={edition} onChange={(e) => setEdition(e.target.value)}><option value="companion">Digital Companion (reader + downloads + Ask SID)</option><option value="online">Online Reading (reader only)</option></select></div>
+                {edition === 'companion' && (<div style={{ display: 'flex', gap: 10 }}>
+                    <div className="form-group" style={{ flex: 1 }}><label>Ask SID questions in total (optional)</label><input className="form-input" aria-label="Ask SID questions" inputMode="numeric" value={questions} onChange={(e) => setQuestions(e.target.value)} placeholder="default: 100" /></div>
+                    <div className="form-group" style={{ flex: 1 }}><label>Ask SID access, months (optional)</label><input className="form-input" aria-label="Duration in months" inputMode="numeric" value={months} onChange={(e) => setMonths(e.target.value)} placeholder="default: 12" /></div>
+                </div>)}
+                {edition === 'companion' && <p style={muted}>The daily limit stays at the normal number of questions per day. Downloads follow the usual rules. Online Reading has no question limit and no end date.</p>}
+                <div className="form-group"><label>Reason (required, recorded in the audit log)</label><textarea className="form-textarea" aria-label="Reason" rows={2} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. owner testing" /></div>
+                <div className="form-actions"><button className="btn btn--outline" onClick={onClose}>Cancel</button><button className="btn btn--primary" disabled={!ok} onClick={go}>{busy ? 'Granting…' : 'Grant complimentary access'}</button></div>
+            </div>
+        </div></div>
+    );
+}
+
+function ImportModal({ onClose, onDone }) {
+    const [csv, setCsv] = useState(''); const [preview, setPreview] = useState(null); const [reason, setReason] = useState(''); const [busy, setBusy] = useState(false); const [result, setResult] = useState(null);
+    const [picked, setPicked] = useState({});
+    function loadFile(f) { if (!f) return; const r = new FileReader(); r.onload = () => { setCsv(String(r.result || '')); setPreview(null); setResult(null); }; r.readAsText(f); }
+    async function check() {
+        setBusy(true); setResult(null);
+        try { const p = await entitlements.importPayhip({ csv }); setPreview(p); setPicked(Object.fromEntries(p.items.filter((i) => i.action === 'import').map((i) => [i.line, true]))); }
+        catch (e) { setPreview(null); toast.error(errText(e)); } finally { setBusy(false); }
+    }
+    const chosen = Object.keys(picked).filter((k) => picked[k]).map(Number);
+    async function apply() { setBusy(true); try { const r = await entitlements.importPayhip({ csv, apply: true, reason: reason.trim(), lines: chosen }); setResult(r); setPreview(null); toast.success(`Imported ${r.summary.imported} order(s)`); onDone(); } catch (e) { toast.error(errText(e)); } finally { setBusy(false); } }
+    const s = preview && preview.summary;
+    return (
+        <div className="modal-overlay" role="dialog" aria-modal="true"><div className="modal" style={{ maxWidth: 900, maxHeight: '92vh', overflow: 'auto' }} data-testid="import-modal">
+            <div className="modal__header"><h2>Import Payhip orders</h2><button className="modal__close" onClick={onClose} aria-label="Close">×</button></div>
+            <div className="modal__body">
+                <p style={muted}>In Payhip open <b>Customers → Export</b> and download the file. Choose it here (or paste its contents). Nothing is saved until you check it and confirm. Orders already on the site are never added twice, and refunded or unrelated products are skipped. Buyers are <b>not</b> e-mailed; they just sign in with the same e-mail and find their book.</p>
+                <input type="file" accept=".csv,text/csv,text/plain" aria-label="Payhip export file" onChange={(e) => loadFile(e.target.files && e.target.files[0])} />
+                <textarea className="form-textarea" aria-label="Payhip export contents" rows={5} style={{ marginTop: 8 }} value={csv} onChange={(e) => { setCsv(e.target.value); setPreview(null); setResult(null); }} placeholder="…or paste the CSV here" />
+                <div className="form-actions" style={{ marginTop: 8 }}><button className="btn btn--outline" disabled={busy || csv.trim().length < 10} onClick={check}>{busy && !preview ? 'Checking…' : 'Check the file (nothing is saved)'}</button></div>
+                {preview && (<>
+                    <p style={{ marginTop: 12 }}><b>{s.toImport}</b> can be imported · {s.skipped} skipped · {s.total} rows. <span style={muted}>Columns read: {Object.entries(preview.columns).map(([k, v]) => `${k}=${v || '—'}`).join(', ')}</span></p>
+                    <p style={muted}>Untick any row that is only a test. Only ticked rows are imported. <button type="button" className="btn btn--outline btn--sm" onClick={() => setPicked(Object.fromEntries(preview.items.filter((i) => i.action === 'import').map((i) => [i.line, true])))}>Tick all</button> <button type="button" className="btn btn--outline btn--sm" onClick={() => setPicked({})}>Untick all</button></p>
+                    <div className="table-wrapper" style={{ maxHeight: 320, overflow: 'auto' }}><table className="data-table"><thead><tr><th></th><th>Row</th><th>E-mail</th><th>Name</th><th>Product</th><th>Coupon</th><th>Date</th><th>Amount</th><th>Result</th></tr></thead><tbody>
+                        {preview.items.map((i) => <tr key={i.line} style={i.action === 'skip' ? { opacity: 0.6 } : undefined}><td>{i.action === 'import' ? <input type="checkbox" aria-label={`Import row ${i.line}`} checked={!!picked[i.line]} onChange={(e) => setPicked({ ...picked, [i.line]: e.target.checked })} /> : null}</td><td>{i.line}</td><td>{i.email}</td><td>{i.name}</td><td>{i.product || '—'}</td><td>{i.coupon || '—'}</td><td>{i.date ? fmt(i.date) : 'no date'}</td><td>{i.amount.toFixed(2)} {i.currency}</td><td>{i.action === 'import' ? `Import as ${i.edition === 'online' ? 'Online Reading' : i.isUpgrade ? 'Companion (upgrade)' : 'Digital Companion'}` : `Skip: ${i.reason}`}</td></tr>)}
+                    </tbody></table></div>
+                    {s.toImport > 0 && (<>
+                        <div className="form-group" style={{ marginTop: 12 }}><label>Reason (required, recorded in the audit log)</label><textarea className="form-textarea" aria-label="Import reason" rows={2} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. webhook did not reach the site; importing the Payhip export" /></div>
+                        <div className="form-actions"><button className="btn btn--primary" disabled={busy || reason.trim().length < 5 || chosen.length === 0} onClick={apply}>{busy ? 'Importing…' : `Import ${chosen.length} selected order${chosen.length === 1 ? '' : 's'}`}</button></div>
+                    </>)}
+                </>)}
+                {result && <div style={{ ...card, marginTop: 12, borderColor: '#a6e3a1' }} data-testid="import-result"><b>Done.</b> Imported {result.summary.imported}, failed {result.summary.failed}, skipped {result.summary.skipped}.{result.results.filter((r) => !r.ok).map((r) => <div key={r.line} style={{ color: '#f38ba8' }}>Row {r.line}: {r.error}</div>)}</div>}
+            </div>
+        </div></div>
+    );
+}
+
 export default function Entitlements() {
+    const [grantOpen, setGrantOpen] = useState(false); const [importOpen, setImportOpen] = useState(false);
     const [tab, setTab] = useState('customers');
     const [overview, setOverview] = useState(null);
     const [q, setQ] = useState(''); const [group, setGroup] = useState('all'); const [page, setPage] = useState(1);
@@ -125,6 +196,8 @@ export default function Entitlements() {
                         <option value="all">All customers</option><option value="online">Online Reading</option><option value="companion">Digital Companion</option><option value="upgraded">Upgraded</option><option value="refunded">Refunded</option><option value="revoked">Revoked</option>
                     </select>
                     <button className="btn btn--outline btn--sm" onClick={() => { loadList(); loadOverview(); }}><HiOutlineRefresh /> Refresh</button>
+                    <button className="btn btn--primary btn--sm" onClick={() => setGrantOpen(true)} data-testid="open-grant">Grant complimentary access…</button>
+                    <button className="btn btn--outline btn--sm" onClick={() => setImportOpen(true)} data-testid="open-import">Import Payhip orders…</button>
                 </div>
                 <div className="table-wrapper"><table className="data-table" data-testid="customers-table"><thead><tr><th>Customer</th><th>Edition</th><th>Status</th><th>Granted</th><th>Ask SID until</th><th>Launch #</th><th>Questions (today · total left)</th><th>Order</th></tr></thead><tbody>
                     {list.items.map((i) => (
@@ -142,9 +215,11 @@ export default function Entitlements() {
                 <select className="form-input" aria-label="Outcome" value={outcome} onChange={(e) => setOutcome(e.target.value)} style={{ maxWidth: 240, marginBottom: 12 }}><option value="">All outcomes</option>{['processed', 'duplicate', 'ignored', 'rejected', 'failed'].map((o) => <option key={o} value={o}>{o}</option>)}</select>
                 <div className="table-wrapper"><table className="data-table" data-testid="webhooks-table"><thead><tr><th>Last seen</th><th>Provider</th><th>Event</th><th>Outcome</th><th>HTTP</th><th>Attempts</th></tr></thead><tbody>
                     {hooks.items.map((h) => <tr key={h.id} style={h.outcome === 'failed' || h.outcome === 'rejected' ? { color: '#f38ba8' } : undefined}><td>{new Date(h.last_seen_at).toISOString().replace('T', ' ').slice(0, 16)}</td><td>{h.provider}</td><td>{h.event_key}</td><td>{h.outcome}</td><td>{h.http_status || '—'}</td><td>{h.attempts}</td></tr>)}
-                    {hooks.items.length === 0 && <tr><td colSpan={6} style={{ textAlign: 'center', ...muted }}>Nothing recorded.</td></tr>}
+                    {hooks.items.length === 0 && <tr><td colSpan={6} style={{ textAlign: 'center', ...muted }}>Nothing recorded. No delivery from Payhip has reached the site yet.</td></tr>}
                 </tbody></table></div>
-                <p style={muted}>A rejected delivery means a purchase was not recognised (the product id is not configured); Payhip retries for 3 hours.</p>
+                <p style={muted}>The Payhip address to use is <b>https://siddiqui.digital/api/payment/payhip/webhook</b>. Open it in a browser: it should say <code>"ok":true</code>.
+                    A row called <b>signature_check</b> means Payhip is reaching the site but the API key saved on the server does not match the one in Payhip (Settings → Developer).
+                    Any other rejected row means a purchase was not recognised (the product is not configured); Payhip retries for 3 hours. If a free (100% coupon) order never appears here, Payhip did not send it: use <b>Import Payhip orders</b> on the Customers tab.</p>
             </>)}
 
             {tab === 'audit' && (
@@ -153,6 +228,8 @@ export default function Entitlements() {
                 </tbody></table></div>
             )}
 
+            {grantOpen && <GrantModal onClose={() => setGrantOpen(false)} onDone={() => { loadList(); loadOverview(); }} />}
+            {importOpen && <ImportModal onClose={() => setImportOpen(false)} onDone={() => { loadList(); loadOverview(); }} />}
             {open && <Detail id={open} onClose={() => setOpen(null)} onChanged={() => { loadList(); loadOverview(); }} />}
             {launchAsk && <ReasonModal title="Open the launch offer" onCancel={() => setLaunchAsk(false)} onSubmit={async ({ reason }) => { try { await entitlements.openLaunch(reason); toast.success('Launch offer is open'); setLaunchAsk(false); loadOverview(); } catch (e) { toast.error(errText(e)); } }} />}
         </div>

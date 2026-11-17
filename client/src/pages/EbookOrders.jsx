@@ -5,7 +5,52 @@ import toast from 'react-hot-toast';
 import { HiOutlineArrowLeft, HiOutlineDownload, HiOutlineSearch } from 'react-icons/hi';
 import { Link } from 'react-router-dom';
 
+function RemoveModal({ orders, onClose, onDone, mode = 'remove' }) {
+    const marking = mode === 'mark';
+    const [picked, setPicked] = useState({}); const [reason, setReason] = useState(''); const [alsoEnd, setAlsoEnd] = useState(false); const [typed, setTyped] = useState(''); const [busy, setBusy] = useState(false);
+    const ids = Object.keys(picked).filter((k) => picked[k]);
+    const ok = ids.length > 0 && reason.trim().length >= 5 && (marking || typed.trim().toUpperCase() === 'REMOVE') && !busy;
+    const toggleAll = (on) => setPicked(Object.fromEntries(orders.map((o) => [o.id, on])));
+    async function go() {
+        setBusy(true);
+        try {
+            if (marking) {
+                const r = await apiRequest('/orders/mark-test', { method: 'POST', body: { ids, reason: reason.trim() } });
+                toast.success(`Marked ${r.updated} order${r.updated === 1 ? '' : 's'} as test. Their access is unchanged.`);
+            } else {
+                const r = await apiRequest('/orders/remove', { method: 'POST', body: { ids, reason: reason.trim(), revokeAccess: alsoEnd } });
+                toast.success(`Removed ${r.removed} order${r.removed === 1 ? '' : 's'}${r.accessEnded ? `; ended access for ${r.accessEnded}` : ''}`);
+            }
+            onDone(); onClose();
+        } catch (e) { toast.error((e && e.message) || (marking ? 'Could not mark the orders' : 'Could not remove the orders')); } finally { setBusy(false); }
+    }
+    return (
+        <div className="modal-overlay" role="dialog" aria-modal="true"><div className="modal" style={{ maxWidth: 820, maxHeight: '92vh', overflow: 'auto' }} data-testid={marking ? 'mark-modal' : 'remove-modal'}>
+            <div className="modal__header"><h2>{marking ? 'Mark orders as test' : 'Remove test orders'}</h2><button className="modal__close" onClick={onClose} aria-label="Close">×</button></div>
+            <div className="modal__body">
+                {marking
+                    ? <p style={{ color: '#a6adc8', fontSize: '0.85rem' }}>Tick the orders that are only tests but whose owner should <b>keep</b> reading. The orders and their access stay exactly as they are; they are just no longer counted in Total Orders, Verified Sales or the dashboard. You can switch any of them back later.</p>
+                    : <p style={{ color: '#a6adc8', fontSize: '0.85rem' }}>Tick the orders that are tests, then confirm. A full copy of each order is kept in the audit log first. Real customers&rsquo; orders should not be ticked: removing an order takes it out of the totals and out of My Orders.</p>}
+                <div style={{ marginBottom: 8 }}><button className="btn btn--outline btn--sm" onClick={() => toggleAll(true)}>Tick all shown</button> <button className="btn btn--outline btn--sm" onClick={() => toggleAll(false)}>Clear</button> <span style={{ color: '#a6adc8', marginLeft: 8 }}>{ids.length} selected</span></div>
+                <div className="table-wrapper" style={{ maxHeight: 300, overflow: 'auto' }}><table className="data-table"><thead><tr><th></th><th>Order</th><th>Customer</th><th>Product</th><th>Date</th><th>Amount</th><th>Status</th></tr></thead><tbody>
+                    {orders.map((o) => <tr key={o.id}><td><input type="checkbox" aria-label={`Select ${o.order_number}`} checked={!!picked[o.id]} onChange={(e) => setPicked({ ...picked, [o.id]: e.target.checked })} /></td><td>{o.order_number}</td><td>{o.user_email || o.email}</td><td>{o.book_name}</td><td>{o.created_at ? new Date(o.created_at).toISOString().slice(0, 10) : ''}</td><td>{Number(o.amount || 0).toFixed(2)}</td><td>{o.status}</td></tr>)}
+                </tbody></table></div>
+                <div className="form-group" style={{ marginTop: 12 }}><label>Reason (required, recorded in the audit log)</label><textarea className="form-textarea" aria-label="Reason" rows={2} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. 26 October test scenarios" /></div>
+                {!marking && <label style={{ display: 'block', margin: '8px 0', fontSize: '0.88rem' }}><input type="checkbox" checked={alsoEnd} onChange={(e) => setAlsoEnd(e.target.checked)} /> Also end the access these orders give (only needed if an order currently gives someone the reader or downloads)</label>}
+                {!marking && <div className="form-group"><label>Type REMOVE to confirm</label><input className="form-input" aria-label="Type REMOVE" value={typed} onChange={(e) => setTyped(e.target.value)} style={{ maxWidth: 200 }} /></div>}
+                <div className="form-actions"><button className="btn btn--outline" onClick={onClose}>Cancel</button>
+                    {marking
+                        ? <button className="btn btn--primary" disabled={!ok} onClick={go}>{busy ? 'Saving…' : `Mark ${ids.length} order${ids.length === 1 ? '' : 's'} as test`}</button>
+                        : <button className="btn btn--danger" disabled={!ok} onClick={go}>{busy ? 'Removing…' : `Remove ${ids.length} order${ids.length === 1 ? '' : 's'}`}</button>}
+                </div>
+            </div>
+        </div></div>
+    );
+}
+
 export default function EbookOrders() {
+    const [removeOpen, setRemoveOpen] = useState(false);
+    const [markOpen, setMarkOpen] = useState(false);
     const [orders, setOrders] = useState([]);
     const [loading, setLoading] = useState(true);
     const [search, setSearch] = useState('');
@@ -28,7 +73,7 @@ export default function EbookOrders() {
     }
 
     const filteredOrders = orders.filter((o) => {
-        const matchesStatus = statusFilter === 'all' || o.status?.toLowerCase() === statusFilter.toLowerCase();
+        const matchesStatus = statusFilter === 'all' || (statusFilter === 'test' ? (o.is_test === true || o.is_complimentary === true) : o.status?.toLowerCase() === statusFilter.toLowerCase());
         const s = search.toLowerCase().trim();
         const matchesSearch = !s ||
             o.order_number?.toLowerCase().includes(s) ||
@@ -38,11 +83,15 @@ export default function EbookOrders() {
         return matchesStatus && matchesSearch;
     });
 
-    const totalOrders = orders.length;
-    const paidOrders = orders.filter(o => o.status === 'paid' || o.status === 'successful');
+    // Orders marked as tests stay in the list (with a TEST badge) and keep their access, but are never counted in these totals.
+    // (complimentary grants made in the admin are likewise not sales)
+    const realOrders = orders.filter((o) => !o.is_test && !o.is_complimentary);
+    const testCount = orders.length - realOrders.length;
+    const totalOrders = realOrders.length;
+    const paidOrders = realOrders.filter(o => o.status === 'paid' || o.status === 'successful');
     const totalRevenue = paidOrders.reduce((sum, o) => sum + (Number(o.amount) || 0), 0);
-    const totalDownloadsUsed = orders.reduce((sum, o) => sum + (Number(o.download_count) || 0), 0);
-    const totalRefunded = orders.filter(o => o.status === 'refunded').length;
+    const totalDownloadsUsed = realOrders.reduce((sum, o) => sum + (Number(o.download_count) || 0), 0);
+    const totalRefunded = realOrders.filter(o => o.status === 'refunded').length;
 
     // The CSV is built in the browser from the orders on screen (so the search and status filter apply) and downloaded as a file.
     // It used to open a localhost address that does not exist on the live server.
@@ -54,7 +103,7 @@ export default function EbookOrders() {
 
     function handleExportCsv() {
         if (!filteredOrders.length) { toast.error('There are no orders to export.'); return; }
-        const header = ['Order #', 'Customer', 'Email', 'Product', 'Purchased (UTC)', 'Currency', 'Amount', 'Status', 'Downloads used', 'Download limit'];
+        const header = ['Order #', 'Customer', 'Email', 'Product', 'Purchased (UTC)', 'Currency', 'Amount', 'Status', 'Downloads used', 'Download limit', 'Test order'];
         const rows = filteredOrders.map((o) => [
             o.order_number || `ORD-${String(o.id || '').substring(0, 8).toUpperCase()}`,
             o.customer_name || '',
@@ -66,6 +115,7 @@ export default function EbookOrders() {
             o.status || '',
             o.download_count || 0,
             o.download_limit || 3,
+            o.is_test ? 'test' : o.is_complimentary ? 'complimentary' : '',
         ]);
         const csv = '﻿' + [header, ...rows].map((r) => r.map(csvCell).join(',')).join('\r\n');
         const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' }));
@@ -98,6 +148,22 @@ export default function EbookOrders() {
                     </p>
                 </div>
                 <button
+                    onClick={() => setMarkOpen(true)}
+                    className="btn btn--outline"
+                    style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 18px', borderRadius: '8px', cursor: 'pointer', marginLeft: 'auto', marginRight: 8 }}
+                    data-testid="open-mark"
+                >
+                    Mark as test…
+                </button>
+                <button
+                    onClick={() => setRemoveOpen(true)}
+                    className="btn btn--outline"
+                    style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 18px', borderRadius: '8px', cursor: 'pointer', marginRight: 8 }}
+                    data-testid="open-remove"
+                >
+                    Remove test orders…
+                </button>
+                <button
                     onClick={handleExportCsv}
                     className="btn btn--secondary"
                     style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 18px', borderRadius: '8px', cursor: 'pointer' }}
@@ -129,7 +195,7 @@ export default function EbookOrders() {
             {/* Filter & Search Bar */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '12px' }}>
                 <div style={{ display: 'flex', gap: '8px' }}>
-                    {['all', 'paid', 'pending', 'refunded'].map((status) => (
+                    {['all', 'paid', 'pending', 'refunded', 'test'].map((status) => (
                         <button
                             key={status}
                             onClick={() => setStatusFilter(status)}
@@ -171,6 +237,9 @@ export default function EbookOrders() {
             </div>
 
             <OrdersTable orders={filteredOrders} onRefresh={fetchOrders} />
+            {testCount > 0 && <p style={{ marginTop: 10, fontSize: '0.8rem', color: 'var(--text-secondary)' }} data-testid="test-note">{testCount} order{testCount === 1 ? ' is' : 's are'} marked as test or complimentary: shown here with a badge, keeping their access, but not counted in the totals above.</p>}
+            {removeOpen && <RemoveModal orders={filteredOrders} onClose={() => setRemoveOpen(false)} onDone={fetchOrders} />}
+            {markOpen && <RemoveModal mode="mark" orders={filteredOrders.filter((o) => !o.is_test)} onClose={() => setMarkOpen(false)} onDone={fetchOrders} />}
         </div>
     );
 }

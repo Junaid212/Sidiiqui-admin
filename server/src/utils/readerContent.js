@@ -35,6 +35,28 @@ async function uniqueSlug(db, table, scope, base, excludeId) {
     return `${root}-${Date.now()}`;
 }
 
+/**
+ * Only real headings stay headings. Used on Word imports and by the "repair headings" tool.
+ *   - Heading 4-6 are not part of the book's structure (only Heading 1/2/3 are): they become normal paragraphs.
+ *   - A "heading" that is plainly a paragraph (a long sentence, or several sentences) becomes a normal paragraph. Word styles are
+ *     honoured as written, but a heading style applied to body text by mistake must not make the reader shout.
+ * Pure: returns the new HTML and how many were changed. Short numbered headings ("1. Introduction", "3.2 The Operating Loop: ...") are never touched.
+ */
+function demoteParagraphHeadings(html) {
+    let demoted = 0; const samples = [];
+    const plain = (x) => String(x).replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim();
+    const out = String(html || '').replace(/<h([1-6])([^>]*)>([\s\S]*?)<\/h\1>/gi, (whole, lvl, _attrs, inner) => {
+        const level = Number(lvl); const t = plain(inner);
+        if (!t) return '';
+        const words = t.split(' ').length;
+        const sentences = (t.match(/[a-z)"”’][.!?]["”’)]?\s+(?=["“(]?[A-Z])/g) || []).length; // "...text. Next sentence" (a lowercase letter or bracket before the full stop)
+        const tooLong = level === 1 ? (t.length > 160 || words > 30) : (t.length > 110 || words > 18 || sentences >= 1);
+        if (level >= 4 || tooLong) { demoted++; if (samples.length < 6) samples.push({ level, text: t.length > 90 ? t.slice(0, 90) + '…' : t }); return `<p>${inner}</p>`; }
+        return whole;
+    });
+    return { html: out, demoted, samples };
+}
+
 /** HTML -> ordered text blocks, remembering the closest heading (used as the "concept" of each passage). */
 function htmlToBlocks(html) {
     const marked = String(html || '')
@@ -110,4 +132,4 @@ async function indexPublishedChapter(db, book, chapter) {
 }
 const removeChapterIndex = (db, chapterId) => db.from('knowledge_chunks').delete().eq('reader_chapter_id', chapterId);
 
-module.exports = { sanitizeChapterHtml, slugify, uniqueSlug, htmlToBlocks, chunkBlocks, chunkPlainText, indexPublishedChapter, removeChapterIndex };
+module.exports = { demoteParagraphHeadings, sanitizeChapterHtml, slugify, uniqueSlug, htmlToBlocks, chunkBlocks, chunkPlainText, indexPublishedChapter, removeChapterIndex };

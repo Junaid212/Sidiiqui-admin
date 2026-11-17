@@ -144,6 +144,32 @@ export default function ReadingContent() {
             await loadChapters(book.id); loadBooks(book.id);
         } catch (err) { toast.error(errText(err)); } finally { setBusy(false); }
     }
+    // Chapters imported earlier: paragraphs that were turned into headings (long sentences, Heading 4-6) go back to normal text.
+    async function repairHeadings() {
+        if (!book) return;
+        setBusy(true);
+        try {
+            const dry = await reading.repairHeadings(book.id, { apply: false });
+            if (!dry.total) { toast.success('Nothing to fix: no normal paragraph is formatted as a heading.'); return; }
+            const list = dry.chapters.map((c) => `• ${c.title}: ${c.demoted} change(s)\n${(c.samples || []).map((s) => `     "${s.text}" (H${s.level})`).join('\n')}`).join('\n');
+            if (!window.confirm(`${dry.chaptersChecked} chapter(s) checked. ${dry.total} paragraph(s) in ${dry.chapters.length} chapter(s) are formatted as headings but look like normal text (a long sentence, or Heading 4-6). Tables, pictures, boxes and all other text are NOT touched.\n\n${list}\n\nChange these back to normal paragraphs? A copy of every changed chapter is saved first, and "Undo last fix" puts it all back. Published chapters change for readers straight away.`)) return;
+            const r = await reading.repairHeadings(book.id, { apply: true, reason: 'Repair: paragraphs wrongly converted to headings by the Word import' });
+            toast.success(`${r.paragraphs} paragraph(s) in ${r.repaired} chapter(s) are normal text again. You can undo this with "Undo last fix".`);
+            await loadChapters(book.id);
+        } catch (err) { toast.error(errText(err)); } finally { setBusy(false); }
+    }
+    async function undoRepairHeadings() {
+        if (!book) return;
+        setBusy(true);
+        try {
+            const dry = await reading.undoRepairHeadings(book.id, { apply: false });
+            const list = dry.chapters.map((c) => `• ${c.title}${c.restore ? '' : ` (left as it is: ${c.why})`}`).join('\n');
+            if (!window.confirm(`Put ${dry.willRestore} chapter(s) back exactly as they were before the last "Fix headings"?\n\n${list}`)) return;
+            const r = await reading.undoRepairHeadings(book.id, { apply: true, reason: 'Undo of the last Fix headings' });
+            toast.success(`${r.restored} chapter(s) restored${r.skipped ? `, ${r.skipped} left as they are` : ''}.`);
+            await loadChapters(book.id);
+        } catch (err) { toast.error(errText(err)); } finally { setBusy(false); }
+    }
     async function editBook() {
         const title = window.prompt('Book title', book.title); if (!title) return;
         const subtitle = window.prompt('Subtitle (optional)', book.subtitle || '') ?? book.subtitle;
@@ -216,6 +242,8 @@ export default function ReadingContent() {
                                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                                     <input ref={docxInput} type="file" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" onChange={importWord} style={{ display: 'none' }} data-testid="docx-input" />
                                     <button className="btn btn--outline btn--sm" onClick={() => docxInput.current && docxInput.current.click()} disabled={busy} data-testid="import-docx">Import from Word</button>
+                                    <button className="btn btn--outline btn--sm" onClick={repairHeadings} disabled={busy} data-testid="repair-headings" title="Turns paragraphs that were wrongly made into headings back into normal text">Fix headings</button>
+                                    <button className="btn btn--outline btn--sm" onClick={undoRepairHeadings} disabled={busy} data-testid="undo-repair-headings" title="Puts the chapters back exactly as they were before the last Fix headings">Undo last fix</button>
                                     <button className="btn btn--outline btn--sm" onClick={editBook} disabled={busy}>Edit details</button>
                                     <button className="btn btn--outline btn--sm" onClick={toggleBook} disabled={busy} data-testid="toggle-book">{book.status === 'published' ? 'Unpublish book' : 'Publish book'}</button>
                                     <button className="btn btn--danger btn--sm" onClick={() => setDialog({ kind: 'deleteBook' })} disabled={busy || book.status === 'published'} title={book.status === 'published' ? 'Unpublish the book first' : ''}><HiOutlineTrash /> Delete</button>

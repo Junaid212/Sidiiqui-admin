@@ -16,6 +16,8 @@ export const reading = {
     unpublishChapter: (id) => apiRequest(`/reading/chapters/${id}/unpublish`, { method: 'POST', body: {} }),
     deleteChapter: (id) => apiRequest(`/reading/chapters/${id}`, { method: 'DELETE', body: { confirm: true } }),
     importDocx: (bookId, file, dryRun) => { const fd = new FormData(); fd.append('file', file); if (dryRun) fd.append('dryRun', 'true'); return apiRequest(`/reading/books/${bookId}/import-docx`, { method: 'POST', body: fd }); },
+    repairHeadings: (bookId, body) => apiRequest(`/reading/books/${bookId}/repair-headings`, { method: 'POST', body }),
+    undoRepairHeadings: (bookId, body) => apiRequest(`/reading/books/${bookId}/repair-headings/undo`, { method: 'POST', body }),
     reorder: (bookId, chapterIds) => apiRequest(`/reading/books/${bookId}/order`, { method: 'PUT', body: { chapterIds } }),
 };
 
@@ -27,6 +29,8 @@ export const entitlements = {
     action: (id, body) => apiRequest(`/entitlements/${id}/action`, { method: 'POST', body }),
     openLaunch: (reason) => apiRequest('/entitlements/launch', { method: 'POST', body: { startsAt: 'now', reason } }),
     reconcile: (email) => apiRequest('/entitlements/reconcile', { method: 'POST', body: { email } }),
+    grant: (body) => apiRequest('/entitlements/grant', { method: 'POST', body }),
+    importPayhip: (body) => apiRequest('/entitlements/import-payhip', { method: 'POST', body }),
     webhooks: (params) => apiRequest(`/entitlements/webhooks?${new URLSearchParams(params).toString()}`),
     audit: () => apiRequest('/entitlements/audit'),
 };

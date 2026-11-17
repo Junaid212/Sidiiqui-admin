@@ -312,3 +312,183 @@ test('B7. import a book from Word: every "Heading 1" becomes a DRAFT chapter; dr
   assert.ok((await sql("select count(*)::int n from public.admin_audit_log where action='reading.book.import_docx'"))[0].n === 1);
   assert.equal((await raw('POST', `/api/reading/books/${bookId}/import-docx`, { token: 'customer-token', body: Buffer.from('x'), headers: { 'Content-Type': 'application/octet-stream' } })).status, 403);
 });
+
+test('B8. only real headings stay headings: sentences and Heading 4-6 become normal paragraphs, on import and for chapters already imported', async () => {
+  const { demoteParagraphHeadings: d } = require('../src/utils/readerContent');
+  const longH = 'The Sid definition does not replace earlier definitions of marketing; it builds on them. Table 3.1 shows what each influential definition emphasizes and what the Sid definition adds.';
+  const quote = 'Leaders start asking: “What must we change upstream (segment, target, position, offer, price, channel access, or experience) before we amplify?”';
+  const html = `<h2>1.1 What This Book Is (and Is Not)</h2><p>x</p><h2>${longH}</h2><h3>${quote}</h3><h2>Field Note: Higher Education</h2><h3>3.2 The Operating Loop: Sense–Shape–Scale–Experience</h3><h3>1. Introduction</h3><h4>Minor</h4><h1>Chapter 6: Downstream by Design: How Marketing Was Misclassified and How to Reclassify It</h1><table><tbody><tr><td>cell one</td><td>cell two</td></tr></tbody></table><figure><img src="https://example.com/a.png" alt="figure a"><figcaption>Figure caption</figcaption></figure><blockquote>A boxed quote</blockquote>`;
+  const r = d(html);
+  for (const same of ['<table><tbody><tr><td>cell one</td><td>cell two</td></tr></tbody></table>', '<figure><img src="https://example.com/a.png" alt="figure a"><figcaption>Figure caption</figcaption></figure>', '<blockquote>A boxed quote</blockquote>']) assert.ok(r.html.includes(same), `untouched: ${same}`);
+  assert.ok(r.samples.length === 3 && r.samples.every((s) => s.text), 'the preview shows which paragraphs would change');
+  assert.equal(r.demoted, 3, 'the two long sentences and the Heading 4');
+  for (const keep of ['<h2>1.1 What This Book Is (and Is Not)</h2>', '<h2>Field Note: Higher Education</h2>', '<h3>3.2 The Operating Loop: Sense–Shape–Scale–Experience</h3>', '<h3>1. Introduction</h3>', '<h1>Chapter 6: Downstream by Design']) assert.ok(r.html.includes(keep), `kept: ${keep}`);
+  assert.ok(r.html.includes(`<p>${longH}</p>`) && r.html.includes(`<p>${quote}</p>`) && r.html.includes('<p>Minor</p>') && !/<h4/.test(r.html));
+  assert.equal(d('<h2>Short heading</h2><p>Body.</p>').demoted, 0, 'ordinary content is untouched');
+  // chapters that were imported earlier are repaired by the tool: report first, reason needed, published chapters re-indexed
+  const made = await api('POST', `/api/reading/books/${bookId}/chapters`, { title: 'Repair me', content_html: html });
+  assert.equal(made.status, 201); const chId = made.json.chapter.id;
+  const dry = await api('POST', `/api/reading/books/${bookId}/repair-headings`, {}); assert.equal(dry.status, 200); assert.equal(dry.json.dryRun, true);
+  assert.equal(dry.json.chapters.find((c) => c.title === 'Repair me').demoted, 3);
+  assert.ok(/<h2>The Sid definition/.test((await api('GET', `/api/reading/chapters/${chId}`)).json.chapter.content_html), 'the report changed nothing');
+  assert.equal((await api('POST', `/api/reading/books/${bookId}/repair-headings`, { apply: true })).status, 400, 'a reason is required');
+  const fixed = await api('POST', `/api/reading/books/${bookId}/repair-headings`, { apply: true, reason: 'long paragraphs were imported as headings' });
+  assert.equal(fixed.status, 200, JSON.stringify(fixed.json));
+  const after = (await api('GET', `/api/reading/chapters/${chId}`)).json.chapter.content_html; assert.ok(!/<h2>The Sid definition/.test(after) && /<h2>1\.1 What This Book Is/.test(after));
+  assert.equal((await api('POST', `/api/reading/books/${bookId}/repair-headings`, {})).json.chapters.some((c) => c.title === 'Repair me'), false, 'repairing twice finds nothing more');
+  assert.equal((await raw('POST', `/api/reading/books/${bookId}/repair-headings`, { token: 'customer-token', body: {} })).status, 403);
+  // tables, figures and boxes survive the repair byte for byte
+  for (const same of ['<table>', 'cell one', '<figcaption>Figure caption</figcaption>', 'https://example.com/a.png', '<blockquote>A boxed quote</blockquote>']) assert.ok(after.includes(same), `still there: ${same}`);
+  // UNDO: the chapter goes back exactly to what it was; a second undo has nothing to do
+  const upre = await api('POST', `/api/reading/books/${bookId}/repair-headings/undo`, {}); assert.equal(upre.status, 200); assert.equal(upre.json.dryRun, true); assert.equal(upre.json.willRestore >= 1, true);
+  assert.equal((await api('POST', `/api/reading/books/${bookId}/repair-headings/undo`, { apply: true })).status, 400, 'a reason is required');
+  const undone = await api('POST', `/api/reading/books/${bookId}/repair-headings/undo`, { apply: true, reason: 'checking the undo' }); assert.equal(undone.status, 200, JSON.stringify(undone.json)); assert.ok(undone.json.restored >= 1);
+  const back = (await api('GET', `/api/reading/chapters/${chId}`)).json.chapter.content_html; assert.ok(/<h2>The Sid definition/.test(back) && /<table>/.test(back), 'the original text is back');
+  assert.equal((await api('POST', `/api/reading/books/${bookId}/repair-headings/undo`, {})).status, 404, 'nothing left to undo');
+  // a chapter edited after a fix is NOT overwritten by an undo
+  assert.equal((await api('POST', `/api/reading/books/${bookId}/repair-headings`, { apply: true, reason: 'second fix for the edit test' })).status, 200);
+  const cur = (await api('GET', `/api/reading/chapters/${chId}`)).json.chapter;
+  assert.equal((await api('PUT', `/api/reading/chapters/${chId}`, { content_html: cur.content_html + '<p>An edit made after the fix</p>', expectedVersion: cur.version })).status, 200);
+  const skip = await api('POST', `/api/reading/books/${bookId}/repair-headings/undo`, { apply: true, reason: 'edit protection check' }); assert.equal(skip.status, 200);
+  assert.equal(skip.json.chapters.find((c) => c.title === 'Repair me').restore, false, 'the edited chapter is left alone');
+  assert.ok(/An edit made after the fix/.test((await api('GET', `/api/reading/chapters/${chId}`)).json.chapter.content_html), 'the later edit is still there');
+  await api('DELETE', `/api/reading/chapters/${chId}`, { confirm: true });
+});
+
+// ---------------------------------------------------------------------------------------------------------------------
+// G. Grant by hand, import the Payhip export, remove test orders
+// ---------------------------------------------------------------------------------------------------------------------
+test('G1. grant access by hand: needs a reason; the person gets the Companion entitlement; no double grants; audited', async () => {
+  await sql('alter table public.orders add column if not exists payhip_transaction_id text');
+  await sql('alter table public.orders add column if not exists raw_metadata jsonb');
+  const g = (b) => api('POST', '/api/entitlements/grant', b);
+  // complimentary grant: custom questions and duration, NO launch position (the offer is open at this point of the suite), not counted as a sale
+  assert.equal((await api('GET', '/api/entitlements/overview')).json.launchOffer.open, true, 'precondition: the launch offer is open');
+  const posBefore = (await sql('select count(*)::int n from public.launch_allocations'))[0].n; const salesBefore = (await api('GET', '/api/stats/ebooks')).json.count;
+  assert.equal((await g({ email: 'gift.reader@example.com', edition: 'online', questions: 50, reason: 'a gift for a reviewer' })).status, 400, 'Online has no question limit');
+  assert.equal((await g({ email: 'gift.reader@example.com', edition: 'companion', questions: 0, reason: 'a gift for a reviewer' })).status, 400);
+  assert.equal((await g({ email: 'gift.reader@example.com', edition: 'companion', months: 99, reason: 'a gift for a reviewer' })).status, 400);
+  const gift = await g({ email: 'gift.reader@example.com', edition: 'companion', questions: 250, months: 24, reason: 'a gift for a reviewer' });
+  assert.equal(gift.status, 201, JSON.stringify(gift.json));
+  const ge = (await api('GET', '/api/entitlements?q=gift.reader')).json.items[0];
+  assert.equal(ge.launchPosition, null, 'a complimentary grant never takes a launch position'); assert.equal(ge.allowance.total_limit, 250);
+  assert.equal((await sql('select count(*)::int n from public.launch_allocations'))[0].n, posBefore, 'the launch counter did not move');
+  const monthsAway = (new Date(ge.askSidExpiresAt).getTime() - Date.now()) / (30.4 * 24 * 3600 * 1000); assert.ok(monthsAway > 23.5 && monthsAway < 24.5, `Ask SID lasts about 24 months (got ${monthsAway.toFixed(2)})`);
+  assert.equal((await api('GET', '/api/stats/ebooks')).json.count, salesBefore, 'a complimentary grant is not a sale');
+  assert.equal((await api('GET', '/api/orders')).json.orders.find((o) => o.email === 'gift.reader@example.com').is_complimentary, true);
+  const rv = await api('POST', `/api/entitlements/${ge.id}/action`, { action: 'revoke', reason: 'gift period over' }); assert.equal(rv.status, 200);
+  assert.equal((await api('GET', '/api/entitlements?q=gift.reader')).json.items[0].accessStatus, 'revoked', 'Revoke works on a complimentary grant');
+  assert.equal((await g({ email: 'owner.test@example.com', edition: 'companion' })).status, 400, 'no reason');
+  assert.equal((await g({ email: 'not-an-email', edition: 'companion', reason: 'owner testing' })).status, 400);
+  assert.equal((await g({ email: 'owner.test@example.com', edition: 'gold', reason: 'owner testing' })).status, 400);
+  const ok = await g({ email: 'Owner.Test@Example.com', edition: 'companion', reason: 'owner testing' });
+  assert.equal(ok.status, 201, JSON.stringify(ok.json)); assert.equal(ok.json.ok, true);
+  const e = (await api('GET', '/api/entitlements?q=owner.test')).json.items[0];
+  assert.equal(e.edition, 'companion'); assert.equal(e.accessStatus, 'active'); assert.equal(e.email, 'owner.test@example.com'); assert.ok(e.allowance.total_limit >= 100);
+  assert.equal((await g({ email: 'owner.test@example.com', edition: 'companion', reason: 'owner testing' })).status, 409, 'already has access');
+  assert.equal((await g({ email: 'owner.test@example.com', edition: 'online', reason: 'owner testing' })).status, 409, 'Companion already includes the reader');
+  const a = await sql("select detail from public.admin_audit_log where action='entitlement.manual_grant' order by id");
+  assert.equal(a.length, 2, 'the gift and the owner grant'); const mine = a.find((x) => x.detail.reason === 'owner testing'); assert.ok(mine);
+  assert.ok(!JSON.stringify(a).includes('owner.test@') && !JSON.stringify(a).includes('gift.reader@'), 'the audit log does not keep the full e-mail');
+  assert.equal((await raw('POST', '/api/entitlements/grant', { body: { email: 'a@b.co', edition: 'online', reason: 'abcdef' } })).status, 401);
+});
+
+const CSV = [
+  'Order ID,Date,Customer Email,Customer Name,Product Name,Total,Currency,Status',
+  'XB0Jkl88WL,2026-11-16 09:00:00,qutub.siddiqui92@gmail.com,Qutub,"Marketing Reclassified: Digital Companion Edition",0.00,USD,Completed',
+  '8B1EaZQrBZ,2026-11-12 10:30:00,mmoin58@yahoo.com,Moin,"Marketing Reclassified: Digital Companion Edition",0.00,USD,Completed',
+  'OLD111,2026-11-10 08:00:00,reader@example.com,Rita,"Marketing Reclassified: Online Reading Edition",0.00,USD,Completed',
+  'UPG222,2026-11-11 08:00:00,reader@example.com,Rita,"Marketing Reclassified: Upgrade to Digital Companion",0.00,USD,Completed',
+  'TST333,2026-11-13 08:00:00,tester@example.com,T,"$1 Test product",1.00,USD,Completed',
+  'REF444,2026-11-13 09:00:00,refunded@example.com,R,"Marketing Reclassified: Digital Companion Edition",49.99,USD,Refunded',
+  'BAD555,2026-11-14 09:00:00,not-an-email,B,"Marketing Reclassified: Digital Companion Edition",49.99,USD,Completed',
+].join('\r\n');
+
+test('G2. Payhip import: the check changes nothing; unrelated, refunded and invalid rows are skipped; $0 orders are accepted; re-import is a no-op', async () => {
+  const imp = (b) => api('POST', '/api/entitlements/import-payhip', b);
+  assert.equal((await imp({})).status, 400); assert.equal((await imp({ csv: 'Name,Product\nA,B,C,D,E,F' })).status, 400, 'no e-mail column');
+  const before = (await sql('select count(*)::int n from public.orders'))[0].n;
+  const pre = await imp({ csv: CSV }); assert.equal(pre.status, 200); assert.equal(pre.json.dryRun, true);
+  assert.equal(pre.json.summary.toImport, 4); assert.equal(pre.json.summary.skipped, 3);
+  const why = Object.fromEntries(pre.json.items.map((i) => [i.txid, i.reason || i.action]));
+  assert.match(why.TST333, /not one of the three/); assert.match(why.REF444, /refunded/); assert.match(why.BAD555, /valid e-mail/);
+  assert.equal((await sql('select count(*)::int n from public.orders'))[0].n, before, 'checking saved nothing');
+  assert.equal((await imp({ csv: CSV, apply: true })).status, 400, 'confirming needs a reason');
+  const done = await imp({ csv: CSV, apply: true, reason: 'webhook never reached the site; importing the Payhip export' });
+  assert.equal(done.status, 200, JSON.stringify(done.json)); assert.equal(done.json.summary.imported, 4); assert.equal(done.json.summary.failed, 0);
+  const ents = (await api('GET', '/api/entitlements?pageSize=100')).json.items;
+  const by = Object.fromEntries(ents.filter((i) => i.accessStatus === 'active').map((i) => [i.email, i.edition]));
+  assert.equal(by['qutub.siddiqui92@gmail.com'], 'companion'); assert.equal(by['mmoin58@yahoo.com'], 'companion');
+  assert.equal(by['reader@example.com'], 'companion', 'the later upgrade replaced the earlier Online purchase');
+  assert.equal(by['tester@example.com'], undefined); assert.equal(by['refunded@example.com'], undefined);
+  const rit = ents.filter((i) => i.email === 'reader@example.com'); assert.equal(rit.length, 2, 'both purchases stay in the history');
+  const again = await imp({ csv: CSV, apply: true, reason: 'second run to prove it is safe' });
+  assert.equal(again.json.summary.imported, 0, 'nothing is imported twice'); assert.equal(again.json.summary.toImport, 0);
+  assert.equal((await sql("select count(*)::int n from public.admin_audit_log where action='entitlement.import_payhip'"))[0].n, 2);
+});
+
+const REAL_HEADER = '"Order ID",Email,"First Name","Last Name",Currency,"Amount Gross","Amount Net",Status,"Num of Items In Cart","Items In Cart","Payment Type","PayPal/Stripe Fee","Payhip Fee","Unsubscribed From Email Updates","Unconsented From Emails (EU GDPR)","Payhip Collected Sales Tax On Your Behalf","Payhip Collected Sales Tax Amount","Payhip Collected Sales Tax In Country","Sales Tax Included In Price","Custom VAT Applied","Custom VAT Amount","Custom VAT Included In Price","Custom VAT Country Name","Company VAT Number","Checkout Questions Enabled","Checkout Responses","Intake Form","Coupon Code Applied","Coupon Code","Coupon Percentage Off","Coupon Discount Amount","Shipping Address","Address Line 1","Address Line 2",City,"State Name","ZIP / Postcode","Country Name","Phone Number","Fulfillment Type","Fulfillment Status","Shipping Rate Name","Shipping Profile Name","Number Of Downloads","License Key",Additional,Notes,Date';
+const realRow = (id, email, first, last, product, pay, gross, coupon, date) => `${id},${email},${first},${last},USD,${gross},${gross},COMPLETED,1,"${product}",${pay},,0.00,0,0,0,0.00,,0,0,0.00,0,,,1,"I agree to the Terms of Use, Refund Policy and Privacy Policy.: ""Agreed""",,${coupon ? 1 : 0},${coupon},100,49.99,,,,,,,"United Arab Emirates",,,,,,2,,,,${date}`;
+test('G4. the real Payhip export layout: product read from "Items In Cart", names joined, quoted fields kept, test product skipped, only ticked rows imported', async () => {
+  const csv = [REAL_HEADER,
+    realRow('RR0001', 'buyer.one@yahoo.com', '', '', 'Marketing Reclassified: Digital Companion Edition', 'free', '0.00', 'SIDDIQUI12', '2026-11-12'),
+    realRow('RR0002', 'buyer.two@gmail.com', 'Amal', 'Rahman', 'Marketing Reclassified: Online Reading Edition.', 'free', '0.00', 'TESTINGREADER', '2026-11-16'),
+    realRow('RR0003', 'tester.three@gmail.com', 'Test', 'Er', 'Marketing Reclassified: Digital Companion Edition', 'free', '0.00', 'TESTING8', '2026-11-16'),
+    realRow('RR0004', 'dev@example.com', 'Dev', 'One', 'Test product', 'free', '0.00', 'TESTING_1', '2026-11-03'),
+    realRow('RR0005', 'paid.test@example.com', '', '', 'Test product', 'paypal', '1.00', '', '2026-11-03'),
+  ].join('\r\n');
+  const imp = (b) => api('POST', '/api/entitlements/import-payhip', b);
+  const pre = await imp({ csv }); assert.equal(pre.status, 200, JSON.stringify(pre.json));
+  assert.equal(pre.json.columns.product, 'Items In Cart'); assert.equal(pre.json.columns.email, 'Email'); assert.equal(pre.json.columns.date, 'Date'); assert.equal(pre.json.columns.amount, 'Amount Gross'); assert.equal(pre.json.columns.status, 'Status');
+  assert.equal(pre.json.summary.toImport, 3); assert.equal(pre.json.summary.skipped, 2);
+  const byTx = Object.fromEntries(pre.json.items.map((i) => [i.txid, i]));
+  assert.equal(byTx.RR0001.edition, 'companion'); assert.equal(byTx.RR0001.coupon, 'SIDDIQUI12'); assert.equal(byTx.RR0001.name, 'Valued Reader');
+  assert.equal(byTx.RR0002.edition, 'online'); assert.equal(byTx.RR0002.name, 'Amal Rahman');
+  assert.equal(byTx.RR0004.action, 'skip'); assert.equal(byTx.RR0005.action, 'skip');
+  assert.equal((await imp({ csv, apply: true, reason: 'only the real buyers', lines: [] })).status, 400, 'nothing selected');
+  const done = await imp({ csv, apply: true, reason: 'only the real buyers', lines: [byTx.RR0001.line, byTx.RR0002.line] });
+  assert.equal(done.status, 200, JSON.stringify(done.json)); assert.equal(done.json.summary.imported, 2); assert.equal(done.json.summary.selected, 2);
+  const act = Object.fromEntries((await api('GET', '/api/entitlements?pageSize=100')).json.items.filter((i) => i.accessStatus === 'active').map((i) => [i.email, i.edition]));
+  assert.equal(act['buyer.one@yahoo.com'], 'companion'); assert.equal(act['buyer.two@gmail.com'], 'online'); assert.equal(act['tester.three@gmail.com'], undefined, 'the unticked test row was not imported');
+  const again = await imp({ csv }); assert.equal(again.json.summary.toImport, 1, 'only the unticked row is still importable; the two done rows are recognised');
+});
+
+test('G5. marking orders as test: the order and its access stay, but sales, order counts and statistics no longer include it; reversible; needs a reason; audited', async () => {
+  await sql('alter table public.orders add column if not exists raw_metadata jsonb');
+  await addOrder(951, 'keeps.reading@example.com', { amount: 49.99 }); await grant(951, 'keeps.reading@example.com', 'companion');
+  await addOrder(952, 'real.buyer@example.com', { amount: 30 });
+  const stats = async () => (await api('GET', '/api/stats/ebooks')).json;
+  const before = await stats(); const tlBefore = (await api('GET', '/api/stats/timeline')).status;
+  const mark = (b) => api('POST', '/api/orders/mark-test', b);
+  assert.equal((await mark({ ids: [uuid(951)] })).status, 400, 'no reason'); assert.equal((await mark({ ids: [], reason: 'client tester' })).status, 400); assert.equal((await mark({ ids: ['x'], reason: 'client tester' })).status, 400);
+  const ok = await mark({ ids: [uuid(951)], reason: 'client tester who is also reading the book' });
+  assert.equal(ok.status, 200, JSON.stringify(ok.json)); assert.equal(ok.json.updated, 1);
+  const after = await stats();
+  assert.equal(after.count, before.count - 1, 'the order is no longer counted'); assert.ok(Math.abs((before.total - after.total) - 49.99) < 0.001, 'its amount left the sales total');
+  const list = (await api('GET', '/api/orders')).json.orders; assert.equal(list.find((o) => o.id === uuid(951)).is_test, true); assert.equal(list.find((o) => o.id === uuid(952)).is_test, false, 'other orders are unaffected');
+  const ent = (await api('GET', '/api/entitlements?q=keeps.reading')).json.items[0]; assert.equal(ent.accessStatus, 'active', 'the access is untouched'); assert.equal(ent.edition, 'companion');
+  // (the timeline page needs tables this small test database does not have; what matters is that flagging changes nothing about how it answers)
+  assert.equal((await api('GET', '/api/stats/timeline')).status, tlBefore, 'the timeline answers the same way as before');
+  assert.equal((await mark({ ids: [uuid(951)], test: false, reason: 'counts again' })).status, 200);
+  assert.equal((await stats()).count, before.count, 'switching it back restores the totals');
+  const a = await sql("select action from public.admin_audit_log where action in ('order.mark_test','order.unmark_test') order by id"); assert.deepEqual(a.map((x) => x.action), ['order.mark_test', 'order.unmark_test']);
+  assert.equal((await raw('POST', '/api/orders/mark-test', { body: {} })).status, 401); assert.equal((await raw('POST', '/api/orders/mark-test', { token: 'customer-token', body: {} })).status, 403);
+});
+
+test('G3. removing test orders: reason + safety copy first; orders that give access are refused unless access is ended; the rest is untouched', async () => {
+  const rm = (b) => api('POST', '/api/orders/remove', b);
+  await addOrder(901, 'oldtest@example.com'); await addOrder(902, 'oldtest2@example.com');
+  const total = (await sql('select count(*)::int n from public.orders'))[0].n;
+  assert.equal((await rm({ ids: [uuid(901)] })).status, 400, 'no reason'); assert.equal((await rm({ ids: [], reason: 'test orders' })).status, 400); assert.equal((await rm({ ids: ['nope'], reason: 'test orders' })).status, 400);
+  const r = await rm({ ids: [uuid(901), uuid(902)], reason: '26 October test scenarios' });
+  assert.equal(r.status, 200, JSON.stringify(r.json)); assert.equal(r.json.removed, 2);
+  assert.equal((await sql('select count(*)::int n from public.orders'))[0].n, total - 2);
+  const copies = await sql("select detail from public.admin_audit_log where action='order.remove'"); assert.equal(copies.length, 2); assert.ok(copies.every((c) => c.detail.order && c.detail.order.email && c.detail.reason));
+  const live = (await sql("select id from public.orders where email='qutub.siddiqui92@gmail.com'"))[0].id;
+  const blocked = await rm({ ids: [live], reason: 'owner test order' }); assert.equal(blocked.status, 409); assert.equal(blocked.json.activeCount, 1);
+  assert.equal((await sql('select count(*)::int n from public.orders where id=$1', [live]))[0].n, 1, 'still there');
+  const ended = await rm({ ids: [live], reason: 'owner test order', revokeAccess: true }); assert.equal(ended.status, 200); assert.equal(ended.json.accessEnded, 1);
+  const q = (await api('GET', '/api/entitlements?q=qutub')).json.items[0]; assert.equal(q.accessStatus, 'revoked');
+  assert.equal((await rm({ ids: [uuid(5000)], reason: 'does not exist' })).status, 404);
+  assert.equal((await raw('POST', '/api/orders/remove', { body: {} })).status, 401); assert.equal((await raw('POST', '/api/orders/remove', { token: 'customer-token', body: {} })).status, 403);
+});

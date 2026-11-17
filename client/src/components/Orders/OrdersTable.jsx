@@ -20,6 +20,17 @@ export default function OrdersTable({ orders, onRefresh }) {
         }
     }
 
+    async function handleUnmark(order) {
+        if (!window.confirm(`Count order ${order.order_number || order.id} in the sales and order totals again?`)) return;
+        try {
+            await apiRequest('/orders/mark-test', { method: 'POST', body: { ids: [order.id], test: false, reason: 'Order is no longer treated as a test' } });
+            toast.success('The order counts in the totals again.');
+            if (onRefresh) onRefresh();
+        } catch (err) {
+            toast.error((err && err.message) || 'Could not update the order');
+        }
+    }
+
     return (
         <div className="table-wrapper">
             <table className="data-table">
@@ -54,6 +65,17 @@ export default function OrdersTable({ orders, onRefresh }) {
                                 <tr key={order.id}>
                                     <td style={{ fontFamily: 'monospace', fontSize: '0.85rem', color: '#fff', fontWeight: '600' }}>
                                         {orderNum}
+                                        {order.is_complimentary && !order.is_test && (
+                                            <div style={{ marginTop: 4 }}>
+                                                <span data-testid="complimentary-badge" title="A complimentary grant made in the admin: not a sale, not counted in totals" style={{ padding: '2px 8px', borderRadius: 4, fontSize: '0.68rem', fontWeight: 800, letterSpacing: '0.05em', backgroundColor: 'rgba(129, 140, 248, 0.18)', color: '#a5b4fc' }}>COMPLIMENTARY</span>
+                                            </div>
+                                        )}
+                                        {order.is_test && (
+                                            <div style={{ marginTop: 4 }}>
+                                                <span data-testid="test-badge" title="Kept with its access, but not counted in sales or order totals" style={{ padding: '2px 8px', borderRadius: 4, fontSize: '0.68rem', fontWeight: 800, letterSpacing: '0.05em', backgroundColor: 'rgba(245, 158, 11, 0.18)', color: '#fbbf24' }}>TEST</span>{' '}
+                                                <button type="button" onClick={() => handleUnmark(order)} style={{ background: 'none', border: 'none', color: '#a5b4fc', fontSize: '0.7rem', cursor: 'pointer', textDecoration: 'underline' }}>count it again</button>
+                                            </div>
+                                        )}
                                     </td>
                                     <td>
                                         <div style={{ fontWeight: '600', color: '#fff', fontSize: '0.9rem' }}>{customerName}</div>
