@@ -26,6 +26,7 @@ router.put('/', requireAdminRole, (req, res) => {
       textColor: body.textColor,
       endsAt: body.endsAt,
       cta: body.cta,
+      onlineCta: body.onlineCta,
     }));
   } catch (e) {
     res.status(e.status || 500).json({ error: e.message || 'Could not save the offer label.' });

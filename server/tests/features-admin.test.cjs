@@ -24,7 +24,7 @@ function raw(method, urlPath, { token, body, headers = {}, port = PORT } = {}) {
     const data = body === undefined ? null : isBuf ? body : JSON.stringify(body);
     const req = http.request({ host: '127.0.0.1', port, path: urlPath, method, headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(data ? { 'Content-Type': isBuf ? headers['Content-Type'] : 'application/json', 'Content-Length': Buffer.byteLength(data) } : {}), ...headers } }, (res) => {
       const chunks = []; res.on('data', (c) => chunks.push(c));
-      res.on('end', () => { const text = Buffer.concat(chunks).toString('utf8'); let json = null; try { json = JSON.parse(text); } catch { /* not json */ } resolve({ status: res.statusCode, json, text }); });
+      res.on('end', () => { const text = Buffer.concat(chunks).toString('utf8'); let json = null; try { json = JSON.parse(text); } catch { /* not json */ } resolve({ status: res.statusCode, json, text, headers: res.headers }); });
     });
     req.on('error', reject); if (data) req.write(data); req.end();
   });
@@ -34,7 +34,7 @@ const sql = async (query, params) => { const r = await raw('POST', '/', { port: 
 
 test.before(async () => {
   child = spawn(process.execPath, ['-r', path.join(__dirname, 'helpers', 'preload-fake-admin-features.cjs'), path.join(SERVER, 'src', 'index.js')], { cwd: SERVER, stdio: ['ignore', 'pipe', 'pipe'],
-    env: { ...process.env, PORT: String(PORT), FAKE_PG_DEBUG_PORT: String(DBG), FAKE_LAUNCH_OPEN: '0', FRONTEND_URL: 'https://admin.siddiqui.digital', ADMIN_EMAIL: 'owner@example.com', SUPABASE_URL: 'http://127.0.0.1:9', SUPABASE_SERVICE_ROLE_KEY: 'test', SUPABASE_ANON_KEY: 'test', PUBLIC_SITE_ROOT: '', FRONTEND_INDEX_PATH: '' } });
+    env: { ...process.env, COUPONS_FILE: path.join(require('node:os').tmpdir(), `coupons-test-${PORT}.json`), PORT: String(PORT), FAKE_PG_DEBUG_PORT: String(DBG), FAKE_LAUNCH_OPEN: '0', FRONTEND_URL: 'https://admin.siddiqui.digital', ADMIN_EMAIL: 'owner@example.com', SUPABASE_URL: 'http://127.0.0.1:9', SUPABASE_SERVICE_ROLE_KEY: 'test', SUPABASE_ANON_KEY: 'test', PUBLIC_SITE_ROOT: '', FRONTEND_INDEX_PATH: '' } });
   let out = ''; child.stdout.on('data', (d) => (out += d)); child.stderr.on('data', (d) => (out += d));
   for (let i = 0; i < 200; i++) { try { if ((await raw('GET', '/api/health')).status === 200) { await sql('select 1'); return; } } catch { /* starting */ } await sleep(100); }
   throw new Error('admin server did not start:\n' + out.slice(-1500));
@@ -473,6 +473,40 @@ test('G5. marking orders as test: the order and its access stay, but sales, orde
   assert.equal((await stats()).count, before.count, 'switching it back restores the totals');
   const a = await sql("select action from public.admin_audit_log where action in ('order.mark_test','order.unmark_test') order by id"); assert.deepEqual(a.map((x) => x.action), ['order.mark_test', 'order.unmark_test']);
   assert.equal((await raw('POST', '/api/orders/mark-test', { body: {} })).status, 401); assert.equal((await raw('POST', '/api/orders/mark-test', { token: 'customer-token', body: {} })).status, 403);
+});
+
+test('K1. coupons "Applies to": LAUNCH30 works only for the Digital Companion; other products are refused; ordinary coupons are unchanged; admin-only to change', async () => {
+  const COMP = { productId: uuid(11), accessType: 'companion' }, ONL = { productId: uuid(11), accessType: 'online' }, OTHER = { productId: uuid(12), accessType: 'download' };
+  const pub = (b) => raw('POST', '/api/public/coupons/validate', { body: b });
+  const create = (b) => api('POST', '/api/coupons', b);
+  assert.equal((await raw('POST', '/api/coupons', { body: { code: 'X1', discount_percentage: 10 } })).status, 401); assert.equal((await raw('POST', '/api/coupons', { token: 'customer-token', body: { code: 'X1', discount_percentage: 10 } })).status, 403, 'only an administrator can change coupons');
+  const made = await create({ code: 'launch30', discount_percentage: 30, applies_to: ['companion', 'bogus', 'companion', 'product:not-a-uuid'] });
+  assert.equal(made.status, 201, JSON.stringify(made.json)); assert.deepEqual(made.json.coupon.applies_to, ['companion'], 'unknown and duplicate keys are dropped');
+  assert.deepEqual((await api('GET', '/api/coupons')).json.coupons.find((c) => c.code === 'LAUNCH30').applies_to, ['companion'], 'the list shows it (the admin screen reads this)');
+  const ok = await pub({ code: 'LAUNCH30', subtotal: 49.99, items: [COMP] }); assert.equal(ok.status, 200, JSON.stringify(ok.json)); assert.equal(ok.json.valid, true); assert.deepEqual(ok.json.discount.applies_to, ['companion']);
+  assert.equal((await pub({ code: 'LAUNCH30', subtotal: 20, items: [ONL] })).status, 400, 'Online Reading is not covered');
+  const no = await pub({ code: 'LAUNCH30', subtotal: 20, items: [ONL] }); assert.match(no.json.error, /applies only to the Digital Companion Edition/);
+  assert.equal((await pub({ code: 'LAUNCH30', subtotal: 20, items: [OTHER] })).status, 400, 'another book is not covered');
+  assert.equal((await pub({ code: 'LAUNCH30', subtotal: 70, items: [ONL, COMP] })).status, 200, 'a cart holding the Companion qualifies (only that item is reduced by the site)');
+  assert.equal((await pub({ code: 'LAUNCH30', subtotal: 49.99 })).status, 400, 'no cart given: a restricted coupon cannot be confirmed, so it is refused');
+  assert.equal((await pub({ code: 'LAUNCH30', subtotal: 49.99, items: [{ productId: uuid(11), accessType: 'upgrade' }] })).status, 200, 'the Upgrade is the Companion at a difference price');
+  // an ordinary coupon (no restriction) behaves exactly as before, with or without a cart
+  assert.equal((await create({ code: 'WELCOME5', discount_percentage: 5 })).status, 201);
+  assert.equal((await pub({ code: 'WELCOME5', subtotal: 20 })).status, 200); assert.equal((await pub({ code: 'WELCOME5', subtotal: 20, items: [OTHER] })).status, 200); assert.deepEqual((await pub({ code: 'WELCOME5', subtotal: 20 })).json.discount.applies_to, []);
+  // changing it: tick Online as well, then back to all products
+  const id = made.json.coupon.id;
+  assert.equal((await api('PUT', `/api/coupons/${id}`, { applies_to: ['companion', 'online'] })).status, 200); assert.equal((await pub({ code: 'LAUNCH30', subtotal: 20, items: [ONL] })).status, 200);
+  assert.equal((await api('PUT', `/api/coupons/${id}`, { applies_to: [] })).status, 200); assert.equal((await pub({ code: 'LAUNCH30', subtotal: 20, items: [OTHER] })).status, 200, 'nothing ticked = every product');
+  assert.equal((await api('PUT', `/api/coupons/${id}`, { description: 'renamed' })).json.coupon.applies_to.length, 0, 'editing something else leaves "Applies to" alone');
+  // a specific product
+  assert.equal((await api('PUT', `/api/coupons/${id}`, { applies_to: [`product:${uuid(12)}`] })).status, 200); assert.equal((await pub({ code: 'LAUNCH30', subtotal: 20, items: [OTHER] })).status, 200); assert.equal((await pub({ code: 'LAUNCH30', subtotal: 49.99, items: [COMP] })).status, 400);
+});
+
+test('N1. everything the website reads under /api/public is never cached (offer, prices, settings, coupons)', async () => {
+  for (const p of ['/api/public/offer-banner', '/api/public/products', '/api/public/ask-sid-config', '/api/public/products/by-slug/marketing-reclassified']) {
+    const r = await raw('GET', p); assert.match(String(r.headers['cache-control'] || ''), /no-store/, `${p} must say no-store (status ${r.status})`); assert.ok(!/max-age=[1-9]/.test(String(r.headers['cache-control'])), `${p} has no max-age`);
+  }
+  assert.match(String((await raw('POST', '/api/public/coupons/validate', { body: { code: 'NOPE' } })).headers['cache-control'] || ''), /no-store/);
 });
 
 test('G3. removing test orders: reason + safety copy first; orders that give access are refused unless access is ended; the rest is untouched', async () => {

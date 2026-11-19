@@ -104,9 +104,13 @@ app.use('/api/companion-files', requireAdmin, companionFileRoutes);
 // Offer label (slim banner on the Marketing Reclassified landing page)
 app.use('/api/offer-banner', requireAdmin, offerBannerRoutes);
 
+// Everything the website reads from /api/public (offer, prices, products, Ask SID settings, coupons) must always be fresh:
+// no browser or proxy may keep a copy, so a returning visitor never sees an outdated offer or price.
+app.use('/api/public', (req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
+
 // Public: the website reads the offer label
 app.get('/api/public/offer-banner', (req, res) => {
-    res.set('Cache-Control', 'public, max-age=60');
+    res.set('Cache-Control', 'no-store');
     return res.json(require('./utils/offerBannerStore').publicView());
 });
 

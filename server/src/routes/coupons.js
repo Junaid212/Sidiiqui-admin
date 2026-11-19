@@ -3,8 +3,9 @@ const router = express.Router();
 const fs = require('fs');
 const path = require('path');
 const { supabaseAdmin } = require('../config/supabase');
+const { cleanAppliesTo, appliesToLabel, couponCoversItems } = require('../utils/couponScope');
 
-const DATA_FILE = path.join(__dirname, '../data/coupons.json');
+const DATA_FILE = process.env.COUPONS_FILE || path.join(__dirname, '../data/coupons.json'); // COUPONS_FILE: only for tests, so they never touch the real coupons
 
 // Helper: load local coupons
 function loadLocalCoupons() {
@@ -117,7 +118,13 @@ router.get('/', async (req, res) => {
                 .select('*')
                 .order('created_at', { ascending: false });
             if (!error && Array.isArray(data) && data.length > 0) {
-                coupons = data;
+                // the Supabase table may not have the "Applies to" column: keep what the local store holds for the same coupon
+                const local = loadLocalCoupons();
+                coupons = data.map((c) => {
+                    if (Array.isArray(c.applies_to)) return c;
+                    const mine = local.find((l) => l.id === c.id || String(l.code).toUpperCase() === String(c.code).toUpperCase());
+                    return mine && Array.isArray(mine.applies_to) ? { ...c, applies_to: mine.applies_to } : c;
+                });
             }
         } catch (_) {}
 
@@ -158,6 +165,7 @@ router.post('/', async (req, res) => {
             max_uses = null,
             expires_at = null,
             is_active = true,
+            applies_to = [],
         } = req.body;
 
         if (!code || typeof code !== 'string') {
@@ -190,6 +198,7 @@ router.post('/', async (req, res) => {
             max_uses: max_uses ? Number(max_uses) : null,
             times_used: 0,
             is_active: Boolean(is_active),
+            applies_to: cleanAppliesTo(applies_to), // [] = all products
             expires_at: expires_at ? new Date(expires_at).toISOString() : null,
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
@@ -223,6 +232,7 @@ router.put('/:id', async (req, res) => {
             max_uses,
             expires_at,
             is_active,
+            applies_to,
         } = req.body;
 
         const coupons = loadLocalCoupons();
@@ -256,6 +266,7 @@ router.put('/:id', async (req, res) => {
         if (max_uses !== undefined) target.max_uses = max_uses ? Number(max_uses) : null;
         if (expires_at !== undefined) target.expires_at = expires_at ? new Date(expires_at).toISOString() : null;
         if (is_active !== undefined) target.is_active = Boolean(is_active);
+        if (applies_to !== undefined) target.applies_to = cleanAppliesTo(applies_to);
 
         target.updated_at = new Date().toISOString();
         coupons[index] = target;
@@ -301,7 +312,7 @@ router.delete('/:id', async (req, res) => {
 // returns discount percentage.
 const validateCoupon = async (req, res) => {
     try {
-        const { code, subtotal = 0 } = req.body;
+        const { code, subtotal = 0, items } = req.body;
         if (!code || typeof code !== 'string') {
             return res.status(400).json({ valid: false, error: 'Please enter a coupon code.' });
         }
@@ -319,8 +330,11 @@ const validateCoupon = async (req, res) => {
             if (data && data[0]) {
                 const found = data[0];
                 const existingIndex = coupons.findIndex(c => c.code.toUpperCase() === cleanCode);
-                if (existingIndex >= 0) coupons[existingIndex] = found;
-                else coupons.push(found);
+                if (existingIndex >= 0) {
+                    // the Supabase row may lack the "Applies to" column: never lose a restriction the local store has
+                    if (!Array.isArray(found.applies_to) && Array.isArray(coupons[existingIndex].applies_to)) found.applies_to = coupons[existingIndex].applies_to;
+                    coupons[existingIndex] = found;
+                } else coupons.push(found);
             }
         } catch (_) {}
 
@@ -361,6 +375,15 @@ const validateCoupon = async (req, res) => {
             });
         }
 
+        // "Applies to": a restricted coupon is valid only when the cart holds at least one product it covers.
+        const appliesTo = cleanAppliesTo(coupon.applies_to);
+        if (!couponCoversItems(appliesTo, items)) {
+            return res.status(400).json({
+                valid: false,
+                error: `Coupon code '${cleanCode}' applies only to the ${appliesToLabel(appliesTo)}.`
+            });
+        }
+
         const percentage = Number(coupon.discount_percentage);
 
         return res.json({
@@ -371,6 +394,7 @@ const validateCoupon = async (req, res) => {
                 type: 'percentage',
                 value: percentage,
                 discount_percentage: percentage,
+                applies_to: appliesTo,
                 description: coupon.description || `${percentage}% off your order`,
             }
         });

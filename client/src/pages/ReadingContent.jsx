@@ -4,6 +4,7 @@ import toast from 'react-hot-toast';
 import { HiOutlineBookOpen, HiOutlinePlus, HiOutlineEye, HiOutlineTrash, HiOutlineArrowUp, HiOutlineArrowDown, HiOutlineSave } from 'react-icons/hi';
 import RichTextEditor from '../components/Blog/RichTextEditor';
 import { reading } from '../services/featureService';
+import { visualEditorLoss, describeLoss } from '../utils/editorSupport';
 
 const card = { background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12, padding: 18 };
 const muted = { color: '#a6adc8', fontSize: '0.85rem' };
@@ -67,6 +68,13 @@ export default function ReadingContent() {
 
     const book = books.find((b) => b.id === bookId) || null;
     const docxInput = useRef(null);
+    // What the visual editor could not keep in this chapter (figure frames, div boxes, highlights, superscripts, table captions ...). Tables are kept.
+    const loss = useMemo(() => visualEditorLoss(draft.html), [draft.html]);
+    function toggleHtmlMode() {
+        // Opening the HTML view is always safe: no question asked. Going BACK to the visual editor asks only when something would be flattened.
+        if (htmlMode && loss.total > 0 && !window.confirm(`The visual editor cannot keep: ${describeLoss(loss)}.\n\nIf you switch to it and keep editing there, these become plain text (the words stay). Stay in the HTML view to keep them exactly.\n\nSwitch to the visual editor anyway?`)) return;
+        setHtmlMode(!htmlMode);
+    }
 
     const loadBooks = useCallback(async (keep) => {
         try {
@@ -92,7 +100,7 @@ export default function ReadingContent() {
 
     async function openChapter(id) {
         if (dirty && !window.confirm('You have unsaved changes in this chapter. Discard them?')) return;
-        try { const { chapter: c } = await reading.getChapter(id); setChapter(c); setDraft({ title: c.title, html: c.content_html || '' }); setDirty(false); setHtmlMode(false); }
+        try { const { chapter: c } = await reading.getChapter(id); setChapter(c); setDraft({ title: c.title, html: c.content_html || '' }); setDirty(false); setHtmlMode(visualEditorLoss(c.content_html || '').total > 0); /* a chapter with things the visual editor would flatten opens in the HTML view */ }
         catch (e) { toast.error(errText(e)); }
     }
     async function run(fn, okMsg) { setBusy(true); try { const r = await fn(); if (okMsg) toast.success(okMsg); return r; } catch (e) { toast.error(errText(e)); return null; } finally { setBusy(false); } }
@@ -259,8 +267,21 @@ export default function ReadingContent() {
                                                 <Badge status={chapter.status} />
                                             </div>
                                             <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-                                                <button className="btn btn--ghost btn--sm" onClick={() => { if (htmlMode || window.confirm('The visual editor removes elements it does not support, such as tables. Switch to it only if the chapter has none. Continue?')) setHtmlMode(!htmlMode); }} data-testid="toggle-html">{htmlMode ? 'Back to visual editor' : 'Edit HTML (tables, advanced)'}</button>
+                                                <button className="btn btn--ghost btn--sm" onClick={toggleHtmlMode} data-testid="toggle-html">{htmlMode ? 'Back to visual editor' : 'Edit HTML (links, tables, boxes)'}</button>
                                             </div>
+                                            {htmlMode && (
+                                                <p style={{ ...muted, margin: '0 0 8px' }} data-testid="html-mode-note">
+                                                    {loss.total > 0
+                                                        ? <>HTML view: this chapter has <b>{describeLoss(loss)}</b>, which the visual editor would flatten, so it opened here and keeps them exactly. </>
+                                                        : <>HTML view: nothing is removed. </>}
+                                                    To add a link, wrap the words: <code>{'<a href="https://example.com">the words</a>'}</code>.
+                                                </p>
+                                            )}
+                                            {!htmlMode && loss.total > 0 && (
+                                                <p style={{ color: '#f9e2af', fontSize: '0.82rem', margin: '0 0 8px' }} data-testid="visual-loss-note">
+                                                    Careful: this chapter has {describeLoss(loss)}. Editing in the visual editor turns them into plain text. Use <b>Edit HTML</b> to change this chapter safely.
+                                                </p>
+                                            )}
                                             {htmlMode
                                                 ? <textarea className="form-textarea" aria-label="Chapter HTML" rows={30} value={draft.html} onChange={(e) => { setDraft({ ...draft, html: e.target.value }); setDirty(true); }} style={{ fontFamily: 'monospace', width: '100%' }} />
                                                 : <RichTextEditor tables key={`${chapter.id}-${chapter.version}`} content={draft.html} placeholder="Write the chapter here…" onChange={(h) => { setDraft((d) => (d.html === h ? d : { ...d, html: h })); setDirty(true); }} />}

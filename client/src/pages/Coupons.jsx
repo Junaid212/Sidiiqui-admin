@@ -32,6 +32,7 @@ export default function Coupons() {
         max_uses: '',
         expires_at: '',
         is_active: true,
+        applies_to: [],
     });
     const [submitting, setSubmitting] = useState(false);
 
@@ -73,6 +74,7 @@ export default function Coupons() {
             max_uses: '',
             expires_at: '',
             is_active: true,
+            applies_to: [],
         });
         setIsModalOpen(true);
     }
@@ -87,6 +89,7 @@ export default function Coupons() {
             max_uses: coupon.max_uses || '',
             expires_at: coupon.expires_at ? coupon.expires_at.split('T')[0] : '',
             is_active: coupon.is_active !== false,
+            applies_to: Array.isArray(coupon.applies_to) ? coupon.applies_to : [],
         });
         setIsModalOpen(true);
     }
@@ -115,6 +118,7 @@ export default function Coupons() {
                 max_uses: formData.max_uses ? Number(formData.max_uses) : null,
                 expires_at: formData.expires_at ? new Date(formData.expires_at).toISOString() : null,
                 is_active: formData.is_active,
+                applies_to: formData.applies_to, // [] = all products
             };
 
             if (editingCoupon) {
@@ -172,6 +176,20 @@ export default function Coupons() {
         toast.success(`Copied '${code}' to clipboard!`);
         setTimeout(() => setCopiedCode(null), 2000);
     }
+
+    // "Applies to": which products a coupon works for (nothing ticked = every product)
+    const SCOPES = [
+        { key: 'companion', label: 'Digital Companion Edition' },
+        { key: 'online', label: 'Online Reading Edition' },
+        { key: 'other', label: 'Other books and frameworks' },
+    ];
+    const scopeLabel = (list) => {
+        const names = SCOPES.filter((s) => (list || []).includes(s.key)).map((s) => s.label);
+        const extra = (list || []).filter((k) => String(k).startsWith('product:')).length;
+        if (extra) names.push(`${extra} selected product${extra === 1 ? '' : 's'}`);
+        return names.length ? names.join(' · ') : 'All products';
+    };
+    const toggleScope = (key) => setFormData((f) => ({ ...f, applies_to: f.applies_to.includes(key) ? f.applies_to.filter((k) => k !== key) : [...f.applies_to, key] }));
 
     // Filtered coupons
     const filteredCoupons = coupons.filter(c => {
@@ -441,6 +459,7 @@ export default function Coupons() {
                                     <th style={{ padding: '14px 20px', color: '#94a3b8', fontWeight: 600 }}>Coupon Code</th>
                                     <th style={{ padding: '14px 20px', color: '#94a3b8', fontWeight: 600 }}>Discount %</th>
                                     <th style={{ padding: '14px 20px', color: '#94a3b8', fontWeight: 600 }}>Description</th>
+                                    <th style={{ padding: '14px 20px', color: '#94a3b8', fontWeight: 600 }}>Applies to</th>
                                     <th style={{ padding: '14px 20px', color: '#94a3b8', fontWeight: 600 }}>Min Order</th>
                                     <th style={{ padding: '14px 20px', color: '#94a3b8', fontWeight: 600 }}>Redemptions</th>
                                     <th style={{ padding: '14px 20px', color: '#94a3b8', fontWeight: 600 }}>Status</th>
@@ -512,6 +531,21 @@ export default function Coupons() {
                                                     Expires: {new Date(c.expires_at).toLocaleDateString()}
                                                 </div>
                                             )}
+                                        </td>
+
+                                        {/* Applies to */}
+                                        <td style={{ padding: '14px 20px', maxWidth: 220 }} data-testid={`applies-${c.code}`}>
+                                            <span style={{
+                                                display: 'inline-block',
+                                                padding: '3px 10px',
+                                                borderRadius: 999,
+                                                fontSize: '0.78rem',
+                                                fontWeight: 600,
+                                                background: (c.applies_to || []).length ? 'rgba(245, 158, 11, 0.14)' : 'rgba(148, 163, 184, 0.12)',
+                                                color: (c.applies_to || []).length ? '#fbbf24' : '#94a3b8',
+                                            }}>
+                                                {scopeLabel(c.applies_to)}
+                                            </span>
                                         </td>
 
                                         {/* Min Order */}
@@ -725,6 +759,33 @@ export default function Coupons() {
                                         fontSize: '0.9rem',
                                     }}
                                 />
+                            </div>
+
+                            {/* Applies to (which products the code works for) */}
+                            <div style={{ marginBottom: 18 }} data-testid="applies-to-field">
+                                <label style={{ display: 'block', fontSize: '0.85rem', color: '#cbd5e1', fontWeight: 600, marginBottom: 6 }}>
+                                    Applies to
+                                </label>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, background: '#0f172a', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 8, padding: '10px 14px' }}>
+                                    {SCOPES.map((s) => (
+                                        <label key={s.key} style={{ display: 'flex', alignItems: 'center', gap: 10, color: '#e2e8f0', fontSize: '0.9rem', cursor: 'pointer' }}>
+                                            <input
+                                                type="checkbox"
+                                                data-testid={`scope-${s.key}`}
+                                                checked={formData.applies_to.includes(s.key)}
+                                                onChange={() => toggleScope(s.key)}
+                                                style={{ width: 17, height: 17, accentColor: '#22c55e', cursor: 'pointer' }}
+                                            />
+                                            {s.label}
+                                        </label>
+                                    ))}
+                                </div>
+                                <small style={{ color: '#64748b', fontSize: '0.75rem', marginTop: 4, display: 'block' }}>
+                                    {formData.applies_to.length === 0
+                                        ? 'Nothing ticked: the code works for every product.'
+                                        : `The code works only for: ${scopeLabel(formData.applies_to)}. In a cart with other items, only those items are reduced.`}
+                                    {' '}Payhip applies its own coupon codes: also limit the same code to this product inside Payhip.
+                                </small>
                             </div>
 
                             {/* Min Order & Max Uses */}
