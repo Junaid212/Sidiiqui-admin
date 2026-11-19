@@ -1,28 +1,27 @@
 const { supabaseAdmin } = require('../config/supabase');
+const { roleOf, can, labelOf, permissionsOf } = require('../utils/permissions');
 
 /**
  * The public website and this admin dashboard share ONE Supabase project, so every customer
  * has a valid Supabase session too. A valid session therefore proves identity only; it must
  * never be treated as proof of administrator rights.
  *
- * Administrator = a Supabase user whose app_metadata.role is 'admin'.
+ * A dashboard user is a Supabase user whose app_metadata.role is 'admin' (Owner), 'editor' or 'support'
+ * (what each may do: see utils/permissions.js).
  *   - app_metadata can only be written with the service-role key (server side / Supabase
  *     dashboard). A user can NOT edit it, unlike user_metadata or a profiles row.
- *   - The role is read from the Auth server on every request (auth.getUser), so granting or
- *     revoking it takes effect immediately, not when a JWT expires.
+ *   - The role is read from the Auth server on every request (auth.getUser), so granting,
+ *     changing or revoking it takes effect immediately, not when a JWT expires.
  *   - Deliberately NOT based on email addresses: anyone can sign up with any address on the
  *     shared project, so an email allow-list would be spoofable.
  *
- * Verify, grant or revoke with: node server/scripts/grant-admin-role.js --candidates | --inspect <email> | <email> [--apply] [--revoke]
+ * Verify, grant or revoke the Owner role with: node server/scripts/grant-admin-role.js --candidates | --inspect <email> | <email> [--apply] [--revoke]
+ * Editors and Support people are added by the Owner in the dashboard (Team).
  */
-const ADMIN_ROLE = 'admin';
 
+/** True for ANY dashboard role (Owner, Editor, Support). Use can()/need() for what they may do. */
 function isAdminUser(user) {
-    if (!user || typeof user !== 'object') return false;
-    const meta = user.app_metadata;
-    if (!meta || typeof meta !== 'object') return false;
-    if (meta.role === ADMIN_ROLE) return true;
-    return Array.isArray(meta.roles) && meta.roles.includes(ADMIN_ROLE);
+    return roleOf(user) !== null;
 }
 
 async function authenticate(req) {
@@ -56,17 +55,20 @@ const requireAuth = async (req, res, next) => {
 };
 
 /**
- * Verifies the session AND that the user is an administrator. Use on every dashboard API.
- * 401 = not signed in, 403 = signed in but not an administrator.
+ * Verifies the session AND that the user has a dashboard role. Use on every dashboard API, then add need(...) for what the route needs.
+ * 401 = not signed in, 403 = signed in but not a dashboard user.
+ * Attaches req.user, req.adminRole ('admin' | 'editor' | 'support').
  */
 const requireAdmin = async (req, res, next) => {
     try {
         const result = await authenticate(req);
         if (result.error) return res.status(result.status).json({ error: result.error });
-        if (!isAdminUser(result.user)) {
+        const role = roleOf(result.user);
+        if (!role) {
             return res.status(403).json({ error: 'Administrator access required' });
         }
         req.user = result.user;
+        req.adminRole = role;
         next();
     } catch (err) {
         console.error('Admin auth middleware error:', err);
@@ -74,4 +76,20 @@ const requireAdmin = async (req, res, next) => {
     }
 };
 
-module.exports = { requireAuth, requireAdmin, isAdminUser };
+const refuse = (req, res) =>
+    res.status(403).json({ error: `Your role (${labelOf(req.adminRole)}) does not allow this.`, code: 'role_not_allowed' });
+
+/** Allow only a role that has this permission. Mount after requireAdmin. */
+const need = (permission) => (req, res, next) => (can(req.adminRole, permission) ? next() : refuse(req, res));
+
+/** Reading (GET / HEAD) needs one permission, changing anything needs another. */
+const needByMethod = (readPermission, writePermission) => (req, res, next) =>
+    need(req.method === 'GET' || req.method === 'HEAD' ? readPermission : writePermission)(req, res, next);
+
+/** Decide the permission from the request itself (method + path), for routers whose actions need different rights. */
+const needBy = (fn) => (req, res, next) => {
+    const permission = fn(req);
+    return permission && can(req.adminRole, permission) ? next() : refuse(req, res);
+};
+
+module.exports = { requireAuth, requireAdmin, isAdminUser, need, needByMethod, needBy, permissionsOf, labelOf };

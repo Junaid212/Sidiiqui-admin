@@ -35,6 +35,15 @@ export const entitlements = {
     audit: () => apiRequest('/entitlements/audit'),
 };
 
+/** Who can sign in to the dashboard (Owner only) */
+export const team = {
+    list: () => apiRequest('/team'),
+    add: (email, role) => apiRequest('/team', { method: 'POST', body: { email, role, redirectTo: window.location.origin } }),
+    resend: (id) => apiRequest(`/team/${id}/resend`, { method: 'POST', body: { redirectTo: window.location.origin } }),
+    setRole: (id, role) => apiRequest(`/team/${id}`, { method: 'PUT', body: { role } }),
+    remove: (id) => apiRequest(`/team/${id}`, { method: 'DELETE' }),
+};
+
 /** Digital Companion PDF files */
 export const companion = {
     list: () => apiRequest('/companion-files'),

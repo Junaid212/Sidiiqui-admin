@@ -17,7 +17,9 @@ import {
     HiOutlineSparkles,
     HiOutlineDocumentText,
     HiOutlineIdentification,
+    HiOutlineUsers,
 } from 'react-icons/hi';
+import { ROUTE_PERMISSION } from '../../utils/access';
 import { useState } from 'react';
 
 const navItems = [
@@ -35,10 +37,15 @@ const navItems = [
     { to: '/contact-messages', icon: HiOutlineMail, label: 'Contact Messages' },
     { to: '/questionnaire', icon: HiOutlineClipboardList, label: 'Questionnaire' },
     { to: '/blogs', icon: HiOutlineNewspaper, label: 'Blog Management' },
+    { to: '/team', icon: HiOutlineUsers, label: 'Team & Access' },
 ];
 
 export default function Sidebar() {
-    const { signOut, profile } = useAuth();
+    const { signOut, profile: profileRow, user, can, roleLabel } = useAuth();
+    // a new Editor / Support account may have no profile row yet: fall back to the sign-in e-mail
+    const profile = profileRow || (user ? { email: user.email } : null);
+    // each person sees only the screens their role allows (the server enforces it too)
+    const visibleItems = navItems.filter((item) => can(ROUTE_PERMISSION[item.to]));
     const navigate = useNavigate();
     const [mobileOpen, setMobileOpen] = useState(false);
 
@@ -74,7 +81,7 @@ export default function Sidebar() {
 
                 {/* Navigation */}
                 <nav className="sidebar__nav">
-                    {navItems.map((item) => (
+                    {visibleItems.map((item) => (
                         <NavLink
                             key={item.to}
                             to={item.to}
@@ -99,7 +106,7 @@ export default function Sidebar() {
                             </div>
                             <div className="sidebar__user-info">
                                 <span className="sidebar__user-name">
-                                    {profile.full_name || 'Admin'}
+                                    {profile.full_name || 'Admin'}{roleLabel ? ` · ${roleLabel}` : ''}
                                 </span>
                                 <span className="sidebar__user-email">{profile.email}</span>
                             </div>

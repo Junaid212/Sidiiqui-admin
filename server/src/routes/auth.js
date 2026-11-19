@@ -3,6 +3,7 @@ const router = express.Router();
 const { supabaseAdmin, supabase } = require('../config/supabase');
 const nodemailer = require('nodemailer');
 const { isAdminUser } = require('../middleware/auth');
+const { roleOf, labelOf, permissionsOf } = require('../utils/permissions');
 
 // Lazy SMTP transporter — built on first use so dotenv is guaranteed to have run
 function getTransporter() {
@@ -180,7 +181,9 @@ router.get('/me', async (req, res) => {
             .eq('id', user.id)
             .single();
 
-        return res.status(200).json({ user, profile, isAdmin: isAdminUser(user) });
+        // isAdmin = may enter the dashboard (any role). role / permissions decide what the screens show; the server re-checks every request.
+        const role = roleOf(user);
+        return res.status(200).json({ user, profile, isAdmin: isAdminUser(user), role, roleLabel: labelOf(role), permissions: permissionsOf(role) });
     } catch (err) {
         console.error('Get user error:', err);
         return res.status(500).json({ error: 'Internal server error' });

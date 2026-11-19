@@ -62,7 +62,9 @@ test.after(() => { if (child) child.kill(); if (fs.existsSync(LOG)) fs.unlinkSyn
 // ---------------------------------------------------------------------------------------------
 // A. Administrator authorisation
 // ---------------------------------------------------------------------------------------------
-const mounts = [...INDEX_SRC.matchAll(/^app\.use\('(\/api\/[^']+)',\s*(requireAdmin|requireAuth)\s*,/gm)].map((m) => ({ route: m[1], guard: m[2] }));
+// A dashboard mount is guarded either by requireAdmin directly, or by the `staff` list (requireAdmin + the audit log) followed by a role permission (utils/permissions.js).
+const STAFF_LIST = /^const staff = \[requireAdmin,/m.test(INDEX_SRC);
+const mounts = [...INDEX_SRC.matchAll(/^app\.use\('(\/api\/[^']+)',\s*(requireAdmin|requireAuth|\.\.\.staff)\s*,/gm)].map((m) => ({ route: m[1], guard: m[2] === '...staff' && STAFF_LIST ? 'requireAdmin' : m[2] }));
 
 test('A0. every dashboard mount in index.js is guarded by requireAdmin (never plain requireAuth)', () => {
   assert.ok(mounts.length >= 13, `found ${mounts.length} guarded mounts`);

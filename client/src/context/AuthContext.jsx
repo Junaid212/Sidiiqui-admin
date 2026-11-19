@@ -17,6 +17,9 @@ export function AuthProvider({ children }) {
     // A customer can hold a perfectly valid session on this shared Supabase project, so being
     // signed in is not enough to see the dashboard.
     const [adminStatus, setAdminStatus] = useState('unknown'); // 'unknown' | 'admin' | 'denied' | 'error'
+    // What this person may do (Owner / Editor / Support), as told by the server. It only decides what the screens SHOW:
+    // the server checks the permission again on every request, so hiding a button is never the protection.
+    const [access, setAccess] = useState({ role: null, roleLabel: '', permissions: [] });
     // The access token the server has already been asked about. Supabase announces one login several times
     // (initial session, sign-in), and refreshes the token about hourly; each NEW token is verified once.
     const verifiedTokenRef = useRef(null);
@@ -44,6 +47,7 @@ export function AuthProvider({ children }) {
                 setProfile(null);
                 verifiedTokenRef.current = null;
                 setAdminStatus('unknown');
+                setAccess({ role: null, roleLabel: '', permissions: [] });
                 setLoading(false);
             }
         });
@@ -92,10 +96,12 @@ export function AuthProvider({ children }) {
             const response = await fetch(`${API_URL}/auth/me`, {
                 headers: { Authorization: `Bearer ${accessToken}` },
             });
-            if (response.status === 401 || response.status === 403) { setAdminStatus('denied'); return; }
+            if (response.status === 401 || response.status === 403) { setAdminStatus('denied'); setAccess({ role: null, roleLabel: '', permissions: [] }); return; }
             if (!response.ok) { transientFailure(); return; }
             const result = await response.json();
-            setAdminStatus(result && result.isAdmin === true ? 'admin' : 'denied');
+            const isStaff = !!(result && result.isAdmin === true);
+            setAccess(isStaff ? { role: result.role || null, roleLabel: result.roleLabel || '', permissions: Array.isArray(result.permissions) ? result.permissions : [] } : { role: null, roleLabel: '', permissions: [] });
+            setAdminStatus(isStaff ? 'admin' : 'denied');
         } catch {
             transientFailure();
         }
@@ -154,6 +160,10 @@ export function AuthProvider({ children }) {
         isAuthenticated: !!user,
         isAdmin: adminStatus === 'admin',
         adminStatus,
+        role: access.role,
+        roleLabel: access.roleLabel,
+        permissions: access.permissions,
+        can: (permission) => access.permissions.includes(permission),
         retryAdminCheck,
     };
 

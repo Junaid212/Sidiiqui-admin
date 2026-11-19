@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { apiRequest } from '../config/api';
 import toast from 'react-hot-toast';
 import { Link } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
 import {
     HiOutlineArrowLeft,
     HiOutlineMail,
@@ -11,6 +12,7 @@ import {
 } from 'react-icons/hi';
 
 export default function ContactMessages() {
+    const { can } = useAuth(); // Support reads and replies (by e-mail, from the message); deleting a message is the Owner's
     const [messages, setMessages] = useState([]);
     const [loading, setLoading] = useState(true);
     const [search, setSearch] = useState('');
@@ -178,14 +180,14 @@ export default function ContactMessages() {
                                         </span>
                                     </td>
                                     <td>
-                                        <button
+                                        {can('messages.manage') && <button
                                             className="btn btn--danger btn--sm"
                                             onClick={() => handleDelete(msg.id)}
                                             title="Delete message"
                                             style={{ padding: '6px 8px', minWidth: 'auto' }}
                                         >
                                             <HiOutlineTrash />
-                                        </button>
+                                        </button>}
                                     </td>
                                 </tr>
                             ))}

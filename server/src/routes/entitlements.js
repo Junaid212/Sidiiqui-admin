@@ -161,6 +161,9 @@ router.post('/grant', async (req, res) => {
     const months = b.months === undefined || b.months === null || b.months === '' ? null : Number(b.months);
     if (questions !== null && (!Number.isInteger(questions) || questions < 1 || questions > 2000)) return fail(res, 400, 'Ask SID questions must be a whole number from 1 to 2000.');
     if (months !== null && (!Number.isInteger(months) || months < 1 || months > 60)) return fail(res, 400, 'Duration must be a whole number of months from 1 to 60.');
+    // "No end date": the database requires every Digital Companion access to carry an end date, so it is stored as a date NO_END_YEARS ahead and shown as "No end date".
+    const noEnd = b.noEnd === true && edition === 'companion';
+    if (noEnd && months !== null) return fail(res, 400, 'Choose a number of months OR no end date, not both.');
     if (edition === 'online' && (questions !== null || months !== null)) return fail(res, 400, 'Online Reading has no Ask SID questions and no end date. Leave those fields empty, or choose Digital Companion.');
 
     // A complimentary grant must NEVER take one of the 200 launch positions. The database gives a position to any Companion grant dated
@@ -186,15 +189,16 @@ router.post('/grant', async (req, res) => {
 
     let applied = { questions: null, expiresAt: null };
     if (edition === 'companion' && g && g.entitlement_id) {
-        const expires = new Date(now); expires.setUTCMonth(expires.getUTCMonth() + (months || Number(limits.months) || 12));
+        const expires = new Date(now);
+        if (noEnd) expires.setUTCFullYear(expires.getUTCFullYear() + sync.NO_END_YEARS); else expires.setUTCMonth(expires.getUTCMonth() + (months || Number(limits.months) || 12));
         const patch = { granted_at: now.toISOString(), ask_sid_expires_at: expires.toISOString() };
         if (questions !== null) patch.total_question_limit = questions;
         const up = await supabaseAdmin.from('user_entitlements').update(patch).eq('id', g.entitlement_id);
         if (up.error) return fail(res, 500, `The grant was created but its dates could not be set: ${up.error.message}`);
         applied = { questions: questions !== null ? questions : (g.total_limit || null), expiresAt: patch.ask_sid_expires_at };
-        await supabaseAdmin.from('entitlement_events').insert([{ entitlement_id: g.entitlement_id, email, order_id: ins.row.id, event_type: 'admin_complimentary_grant', detail: { reason, questions: applied.questions, months: months || Number(limits.months) || 12 }, actor_id: req.user.id, actor_label: req.user.email }]);
+        await supabaseAdmin.from('entitlement_events').insert([{ entitlement_id: g.entitlement_id, email, order_id: ins.row.id, event_type: 'admin_complimentary_grant', detail: { reason, questions: applied.questions, months: noEnd ? null : (months || Number(limits.months) || 12), noEnd }, actor_id: req.user.id, actor_label: req.user.email }]);
     }
-    await audit(req, 'entitlement.manual_grant', ins.row.id, { email: email.replace(/^(.).*(@.*)$/, '$1***$2'), edition, reason, questions: applied.questions, months, result: (g && g.result) || null });
+    await audit(req, 'entitlement.manual_grant', ins.row.id, { email: email.replace(/^(.).*(@.*)$/, '$1***$2'), edition, reason, questions: applied.questions, months, noEnd, result: (g && g.result) || null });
     res.status(201).json({ ok: true, orderNumber: ins.row.order_number, edition, result: g, ...applied });
 });
 

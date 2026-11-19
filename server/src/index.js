@@ -23,8 +23,22 @@ const readingRoutes = require('./routes/reading');
 const entitlementRoutes = require('./routes/entitlements');
 const companionFileRoutes = require('./routes/companionFiles');
 const offerBannerRoutes = require('./routes/offerBanner');
-const { requireAdmin } = require('./middleware/auth');
+const { requireAdmin, need, needByMethod, needBy } = require('./middleware/auth');
+const { auditAdminRequests } = require('./utils/adminAudit');
+const teamRoutes = require('./routes/team');
 const blogPrerender = require('./utils/blogPrerender');
+
+// What each customer-access action needs (Support may look, grant and revoke; the rest of the actions are the Owner's)
+function entitlementPermission(req) {
+    const p = req.path;
+    if (req.method === 'GET' || req.method === 'HEAD') return (p === '/audit' || p === '/webhooks') ? 'audit' : 'customers.view';
+    if (p === '/grant' || p === '/reconcile') return 'customers.grant';
+    if (/^\/[0-9a-f-]{36}\/action\/?$/i.test(p)) {
+        const action = req.body && req.body.action;
+        return action === 'revoke' || action === 'restore' ? 'customers.grant' : 'customers.manage'; // extend / add questions
+    }
+    return 'customers.manage'; // open the launch offer, import Payhip orders, anything added later
+}
 
 const app = express();
 const PORT = process.env.PORT || 5001;
@@ -82,27 +96,34 @@ app.get('/api/health', (req, res) => {
 // /api/auth handles its own authentication (sign-in, password reset, /me) and has no public sign-up.
 app.use('/api/auth', authRoutes);
 
-// Every dashboard API below requires an ADMINISTRATOR (valid session + app_metadata.role === 'admin').
-// A valid customer session is not enough: customers share this Supabase project.
-app.use('/api/stats', requireAdmin, statsRoutes);
-app.use('/api/consultations', requireAdmin, consultationsRoutes);
-app.use('/api/blogs', requireAdmin, blogsRoutes);
-app.use('/api/comments', requireAdmin, commentsRoutes);
-app.use('/api/orders', requireAdmin, ordersRoutes);
-app.use('/api/products', requireAdmin, productsRoutes);
-app.use('/api/course-clicks-details', requireAdmin, courseClicksRoutes);
-app.use('/api/sign-ins-details', requireAdmin, signInsRoutes);
-app.use('/api/admin/metrics', requireAdmin, metricsRoutes);
-app.use('/api/contact-messages', requireAdmin, contactMessagesRoutes);
-app.use('/api/questionnaire', requireAdmin, questionnaireRoutes);
-app.use('/api/coupons', requireAdmin, couponsRoutes);
-app.use('/api/ask-sid', requireAdmin, askSidRoutes);
-// Online Reading content, Digital Companion customers / entitlements, Companion PDF files (administrators only)
-app.use('/api/reading', requireAdmin, readingRoutes);
-app.use('/api/entitlements', requireAdmin, entitlementRoutes);
-app.use('/api/companion-files', requireAdmin, companionFileRoutes);
-// Offer label (slim banner on the Marketing Reclassified landing page)
-app.use('/api/offer-banner', requireAdmin, offerBannerRoutes);
+// Every dashboard API below requires a DASHBOARD ROLE (valid session + app_metadata.role of admin / editor / support), and then the
+// permission that area needs (utils/permissions.js). A valid customer session is not enough: customers share this Supabase project.
+// auditAdminRequests writes every change and every refusal to the audit log.
+//   Owner   : everything.   Editor : Online Reading, Blog, Ask SID settings, Companion Files.
+//   Support : view orders and customers, grant / revoke reader access, read contact messages.
+const staff = [requireAdmin, auditAdminRequests];
+app.use('/api/stats', ...staff, need('dashboard'), statsRoutes);
+app.use('/api/consultations', ...staff, need('consultations'), consultationsRoutes);
+app.use('/api/blogs', ...staff, need('blog'), blogsRoutes);
+app.use('/api/comments', ...staff, need('blog'), commentsRoutes);
+// orders: Support may VIEW the list; refunds, removing, marking as test and the CSV export are Owner only
+app.use('/api/orders', ...staff, needBy((req) => ((req.method === 'GET' && req.path !== '/export-csv') ? 'orders.view' : 'orders.manage')), ordersRoutes);
+app.use('/api/products', ...staff, need('products'), productsRoutes);
+app.use('/api/course-clicks-details', ...staff, need('analytics'), courseClicksRoutes);
+app.use('/api/sign-ins-details', ...staff, need('analytics'), signInsRoutes);
+app.use('/api/admin/metrics', ...staff, need('analytics'), metricsRoutes);
+app.use('/api/contact-messages', ...staff, needByMethod('messages.view', 'messages.manage'), contactMessagesRoutes);
+app.use('/api/questionnaire', ...staff, need('analytics'), questionnaireRoutes);
+app.use('/api/coupons', ...staff, need('coupons'), couponsRoutes);
+app.use('/api/ask-sid', ...staff, need('asksid'), askSidRoutes);
+// Online Reading content, Digital Companion customers / entitlements, Companion PDF files
+app.use('/api/reading', ...staff, need('reading'), readingRoutes);
+app.use('/api/entitlements', ...staff, needBy(entitlementPermission), entitlementRoutes);
+app.use('/api/companion-files', ...staff, need('companion'), companionFileRoutes);
+// Offer label (slim banner on the Marketing Reclassified landing page) and the edition offers: payment settings, Owner only
+app.use('/api/offer-banner', ...staff, need('settings'), offerBannerRoutes);
+// Who can sign in to the dashboard (Owner only)
+app.use('/api/team', ...staff, need('team'), teamRoutes);
 
 // Everything the website reads from /api/public (offer, prices, products, Ask SID settings, coupons) must always be fresh:
 // no browser or proxy may keep a copy, so a returning visitor never sees an outdated offer or price.

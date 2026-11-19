@@ -4,6 +4,7 @@ import OrdersTable from '../components/Orders/OrdersTable';
 import toast from 'react-hot-toast';
 import { HiOutlineArrowLeft, HiOutlineDownload, HiOutlineSearch } from 'react-icons/hi';
 import { Link } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
 
 function RemoveModal({ orders, onClose, onDone, mode = 'remove' }) {
     const marking = mode === 'mark';
@@ -49,6 +50,8 @@ function RemoveModal({ orders, onClose, onDone, mode = 'remove' }) {
 }
 
 export default function EbookOrders() {
+    const { can } = useAuth();
+    const canManage = can('orders.manage'); // Support can look at orders; marking, removing, refunding and exporting are the Owner's
     const [removeOpen, setRemoveOpen] = useState(false);
     const [markOpen, setMarkOpen] = useState(false);
     const [orders, setOrders] = useState([]);
@@ -147,29 +150,29 @@ export default function EbookOrders() {
                         Track verified purchases, Stripe payments, digital downloads, and customer fulfillment.
                     </p>
                 </div>
-                <button
+                {canManage && <button
                     onClick={() => setMarkOpen(true)}
                     className="btn btn--outline"
                     style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 18px', borderRadius: '8px', cursor: 'pointer', marginLeft: 'auto', marginRight: 8 }}
                     data-testid="open-mark"
                 >
                     Mark as test…
-                </button>
-                <button
+                </button>}
+                {canManage && <button
                     onClick={() => setRemoveOpen(true)}
                     className="btn btn--outline"
                     style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 18px', borderRadius: '8px', cursor: 'pointer', marginRight: 8 }}
                     data-testid="open-remove"
                 >
                     Remove test orders…
-                </button>
-                <button
+                </button>}
+                {canManage && <button
                     onClick={handleExportCsv}
                     className="btn btn--secondary"
                     style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 18px', borderRadius: '8px', cursor: 'pointer' }}
                 >
                     <HiOutlineDownload size={18} /> Export Orders CSV
-                </button>
+                </button>}
             </div>
 
             {/* Metrics Cards */}

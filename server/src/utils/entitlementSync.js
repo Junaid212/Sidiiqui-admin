@@ -60,4 +60,7 @@ async function syncEmail(email) {
     return { ok: results.every((r) => r.ok), results };
 }
 
-module.exports = { CATALOG_KEY, normalizeEmail, escapeLike, isRefundedOrder, isPaidOrder, isCatalogOrder, editionFromOrder, syncOrderEntitlement, syncEmail };
+// How far ahead the end date is set when a complimentary Companion access is given "no end date" (the database needs a date; anything this far away is shown as "No end date").
+const NO_END_YEARS = 100;
+
+module.exports = { NO_END_YEARS, CATALOG_KEY, normalizeEmail, escapeLike, isRefundedOrder, isPaidOrder, isCatalogOrder, editionFromOrder, syncOrderEntitlement, syncEmail };

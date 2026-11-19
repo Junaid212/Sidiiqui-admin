@@ -2,10 +2,13 @@ import React, { useCallback, useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
 import { HiOutlineUserGroup, HiOutlineRefresh } from 'react-icons/hi';
 import { entitlements } from '../services/featureService';
+import { useAuth } from '../context/AuthContext';
 
 const card = { background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12, padding: 16 };
 const muted = { color: '#a6adc8', fontSize: '0.85rem' };
 const fmt = (d) => (d ? new Date(d).toISOString().slice(0, 10) : '—');
+// A complimentary Companion access given "no end date" is stored with an end date 100 years away (the database needs a date): shown as such.
+const endLabel = (d) => (d && new Date(d).getUTCFullYear() >= 2100 ? 'No end date' : fmt(d));
 const errText = (e) => (e && e.message) || 'Something went wrong';
 const EDITION = { online: ['Online Reading', '#89b4fa'], companion: ['Digital Companion', '#a6e3a1'] };
 const STATUS = { active: ['Active', '#a6e3a1'], revoked: ['Revoked', '#f38ba8'], ask_sid_expired: ['Ask SID expired', '#f9e2af'] };
@@ -30,6 +33,7 @@ function ReasonModal({ title, askAmount, amountLabel, onCancel, onSubmit }) {
 }
 
 function Detail({ id, onClose, onChanged }) {
+    const { can } = useAuth(); // Support may revoke / restore; extending and adding questions are the Owner's
     const [d, setD] = useState(null); const [ask, setAsk] = useState(null);
     const load = useCallback(() => entitlements.detail(id).then(setD).catch((e) => toast.error(errText(e))), [id]);
     useEffect(() => { load(); }, [load]);
@@ -52,7 +56,7 @@ function Detail({ id, onClose, onChanged }) {
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px,1fr))', gap: 10 }}>
                     <div style={card}><div style={muted}>Granted</div><b>{fmt(e.granted_at)}</b>{e.is_upgrade && <div style={muted}>upgrade date; the 12 months start here</div>}</div>
                     {e.edition === 'companion' && a && (<>
-                        <div style={card}><div style={muted}>Ask SID access until</div><b>{fmt(a.expires_at)}</b></div>
+                        <div style={card}><div style={muted}>Ask SID access until</div><b data-testid="detail-ends">{endLabel(a.expires_at)}</b></div>
                         <div style={card}><div style={muted}>Today</div><b data-testid="allow-daily">{a.daily_used} / {a.daily_limit}</b> <span style={muted}>({a.daily_remaining} left)</span></div>
                         <div style={card}><div style={muted}>Total</div><b data-testid="allow-total">{a.total_used} / {a.total_limit}</b> <span style={muted}>({a.total_remaining} left)</span></div>
                     </>)}
@@ -66,10 +70,10 @@ function Detail({ id, onClose, onChanged }) {
                 <ul style={{ ...muted, paddingLeft: 18 }}>{d.events.map((ev) => <li key={ev.id}>{fmt(ev.created_at)} — {ev.event_type.replace(/_/g, ' ')} <span style={{ opacity: 0.7 }}>({ev.actor_label}){ev.detail && ev.detail.reason ? ` · ${ev.detail.reason}` : ''}</span></li>)}</ul>
                 {e.edition === 'companion' && Object.keys(d.usageByDay).length > 0 && <p style={muted}>Questions by day: {Object.entries(d.usageByDay).map(([day, n]) => `${day}: ${n}`).join(' · ')}</p>}
                 <div className="form-actions" style={{ marginTop: 14, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                    {e.edition === 'companion' && e.status === 'active' && <button className="btn btn--outline btn--sm" onClick={() => setAsk({ action: 'add_questions', title: 'Add (or remove) questions', amount: true, label: 'Number of questions (negative to remove)' })}>Add questions</button>}
-                    {e.edition === 'companion' && e.status === 'active' && <button className="btn btn--outline btn--sm" onClick={() => setAsk({ action: 'extend_months', title: 'Extend Ask SID access', amount: true, label: 'Months to add (1–24)' })}>Extend access</button>}
-                    {e.status === 'active' && <button className="btn btn--danger btn--sm" onClick={() => setAsk({ action: 'revoke', title: 'Revoke this entitlement' })}>Revoke access</button>}
-                    {e.status === 'revoked' && !revokedByRefund && <button className="btn btn--primary btn--sm" onClick={() => setAsk({ action: 'restore', title: 'Restore this entitlement' })}>Restore access</button>}
+                    {can('customers.manage') && e.edition === 'companion' && e.status === 'active' && <button className="btn btn--outline btn--sm" onClick={() => setAsk({ action: 'add_questions', title: 'Add (or remove) questions', amount: true, label: 'Number of questions (negative to remove)' })}>Add questions</button>}
+                    {can('customers.manage') && e.edition === 'companion' && e.status === 'active' && <button className="btn btn--outline btn--sm" onClick={() => setAsk({ action: 'extend_months', title: 'Extend Ask SID access', amount: true, label: 'Months to add (1–24)' })}>Extend access</button>}
+                    {can('customers.grant') && e.status === 'active' && <button className="btn btn--danger btn--sm" onClick={() => setAsk({ action: 'revoke', title: 'Revoke this entitlement' })} data-testid="revoke-access">Revoke access</button>}
+                    {can('customers.grant') && e.status === 'revoked' && !revokedByRefund && <button className="btn btn--primary btn--sm" onClick={() => setAsk({ action: 'restore', title: 'Restore this entitlement' })}>Restore access</button>}
                     {revokedByRefund && <span style={muted}>A refunded purchase cannot be restored.</span>}
                 </div>
                 {ask && <ReasonModal title={ask.title} askAmount={ask.amount} amountLabel={ask.label} onCancel={() => setAsk(null)} onSubmit={(v) => submit(ask.action, v)} />}
@@ -81,14 +85,14 @@ function Detail({ id, onClose, onChanged }) {
 
 function GrantModal({ onClose, onDone }) {
     const [email, setEmail] = useState(''); const [edition, setEdition] = useState('companion'); const [reason, setReason] = useState(''); const [busy, setBusy] = useState(false);
-    const [questions, setQuestions] = useState(''); const [months, setMonths] = useState('');
+    const [questions, setQuestions] = useState(''); const [months, setMonths] = useState(''); const [noEnd, setNoEnd] = useState(false);
     const whole = (v, lo, hi) => v === '' || (/^\d+$/.test(v) && Number(v) >= lo && Number(v) <= hi);
-    const ok = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()) && reason.trim().length >= 5 && !busy && (edition === 'online' || (whole(questions, 1, 2000) && whole(months, 1, 60)));
+    const ok = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()) && reason.trim().length >= 5 && !busy && (edition === 'online' || (whole(questions, 1, 2000) && (noEnd || whole(months, 1, 60))));
     async function go() {
         setBusy(true);
         try {
             const body = { email: email.trim(), edition, reason: reason.trim() };
-            if (edition === 'companion') { if (questions !== '') body.questions = Number(questions); if (months !== '') body.months = Number(months); }
+            if (edition === 'companion') { if (questions !== '') body.questions = Number(questions); if (noEnd) body.noEnd = true; else if (months !== '') body.months = Number(months); }
             const r = await entitlements.grant(body); toast.success(`Complimentary access granted (${r.orderNumber})`); onDone(); onClose();
         }
         catch (e) { toast.error(errText(e)); } finally { setBusy(false); }
@@ -102,9 +106,12 @@ function GrantModal({ onClose, onDone }) {
                 <div className="form-group"><label>Edition</label><select className="form-input" aria-label="Edition" value={edition} onChange={(e) => setEdition(e.target.value)}><option value="companion">Digital Companion (reader + downloads + Ask SID)</option><option value="online">Online Reading (reader only)</option></select></div>
                 {edition === 'companion' && (<div style={{ display: 'flex', gap: 10 }}>
                     <div className="form-group" style={{ flex: 1 }}><label>Ask SID questions in total (optional)</label><input className="form-input" aria-label="Ask SID questions" inputMode="numeric" value={questions} onChange={(e) => setQuestions(e.target.value)} placeholder="default: 100" /></div>
-                    <div className="form-group" style={{ flex: 1 }}><label>Ask SID access, months (optional)</label><input className="form-input" aria-label="Duration in months" inputMode="numeric" value={months} onChange={(e) => setMonths(e.target.value)} placeholder="default: 12" /></div>
+                    <div className="form-group" style={{ flex: 1 }}><label>Ask SID access: how long</label>
+                        <select className="form-input" aria-label="Duration" value={noEnd ? 'none' : 'months'} onChange={(e) => setNoEnd(e.target.value === 'none')}><option value="months">A number of months</option><option value="none">No end date</option></select>
+                        {!noEnd && <input className="form-input" style={{ marginTop: 6 }} aria-label="Duration in months" inputMode="numeric" value={months} onChange={(e) => setMonths(e.target.value)} placeholder="months (default: 12)" />}
+                    </div>
                 </div>)}
-                {edition === 'companion' && <p style={muted}>The daily limit stays at the normal number of questions per day. Downloads follow the usual rules. Online Reading has no question limit and no end date.</p>}
+                {edition === 'companion' && <p style={muted}>The daily limit stays at the normal number of questions per day. Downloads follow the usual rules. Online Reading has no question limit and no end date. Access can be ended at any time with <b>Revoke access</b>.</p>}
                 <div className="form-group"><label>Reason (required, recorded in the audit log)</label><textarea className="form-textarea" aria-label="Reason" rows={2} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. owner testing" /></div>
                 <div className="form-actions"><button className="btn btn--outline" onClick={onClose}>Cancel</button><button className="btn btn--primary" disabled={!ok} onClick={go}>{busy ? 'Granting…' : 'Grant complimentary access'}</button></div>
             </div>
@@ -150,6 +157,8 @@ function ImportModal({ onClose, onDone }) {
 }
 
 export default function Entitlements() {
+    const { can } = useAuth(); // what this person's role allows (the server checks again on every request)
+    const [revokeFor, setRevokeFor] = useState(null); // the customer row whose "Revoke" button was pressed
     const [grantOpen, setGrantOpen] = useState(false); const [importOpen, setImportOpen] = useState(false);
     const [tab, setTab] = useState('customers');
     const [overview, setOverview] = useState(null);
@@ -185,9 +194,9 @@ export default function Entitlements() {
                         <div className="stat-card__subtitle">{lo.open ? `Open since ${fmt(lo.startsAt)}` : 'Not open yet'} · {overview.limits.daily}/day · {overview.limits.launchTotal} questions (then {overview.limits.standardTotal})</div></div>
                 </div>
             )}
-            {lo && !lo.open && <div style={{ ...card, marginBottom: 14, borderColor: '#f9e2af' }}><b style={{ color: '#f9e2af' }}>The launch offer is closed.</b> <span style={muted}>Until you open it, no purchase can take one of the 200 launch positions (so old or test orders never do). Open it on launch day.</span> <button className="btn btn--primary btn--sm" style={{ marginLeft: 10 }} onClick={() => setLaunchAsk(true)} data-testid="open-launch">Open the launch offer now</button></div>}
+            {lo && !lo.open && <div style={{ ...card, marginBottom: 14, borderColor: '#f9e2af' }}><b style={{ color: '#f9e2af' }}>The launch offer is closed.</b> <span style={muted}>Until you open it, no purchase can take one of the 200 launch positions (so old or test orders never do). Open it on launch day.</span> {can('customers.manage') && <button className="btn btn--primary btn--sm" style={{ marginLeft: 10 }} onClick={() => setLaunchAsk(true)} data-testid="open-launch">Open the launch offer now</button>}</div>}
 
-            <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>{tabBtn('customers', 'Customers')}{tabBtn('webhooks', 'Webhook deliveries')}{tabBtn('audit', 'Audit log')}</div>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>{tabBtn('customers', 'Customers')}{can('audit') && tabBtn('webhooks', 'Webhook deliveries')}{can('audit') && tabBtn('audit', 'Audit log')}</div>
 
             {tab === 'customers' && (<>
                 <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 12 }}>
@@ -196,17 +205,18 @@ export default function Entitlements() {
                         <option value="all">All customers</option><option value="online">Online Reading</option><option value="companion">Digital Companion</option><option value="upgraded">Upgraded</option><option value="refunded">Refunded</option><option value="revoked">Revoked</option>
                     </select>
                     <button className="btn btn--outline btn--sm" onClick={() => { loadList(); loadOverview(); }}><HiOutlineRefresh /> Refresh</button>
-                    <button className="btn btn--primary btn--sm" onClick={() => setGrantOpen(true)} data-testid="open-grant">Grant complimentary access…</button>
-                    <button className="btn btn--outline btn--sm" onClick={() => setImportOpen(true)} data-testid="open-import">Import Payhip orders…</button>
+                    {can('customers.grant') && <button className="btn btn--primary btn--sm" onClick={() => setGrantOpen(true)} data-testid="open-grant">Grant complimentary access…</button>}
+                    {can('customers.manage') && <button className="btn btn--outline btn--sm" onClick={() => setImportOpen(true)} data-testid="open-import">Import Payhip orders…</button>}
                 </div>
-                <div className="table-wrapper"><table className="data-table" data-testid="customers-table"><thead><tr><th>Customer</th><th>Edition</th><th>Status</th><th>Granted</th><th>Ask SID until</th><th>Launch #</th><th>Questions (today · total left)</th><th>Order</th></tr></thead><tbody>
+                <div className="table-wrapper"><table className="data-table" data-testid="customers-table"><thead><tr><th>Customer</th><th>Edition</th><th>Status</th><th>Granted</th><th>Ask SID until</th><th>Launch #</th><th>Questions (today · total left)</th><th>Order</th><th></th></tr></thead><tbody>
                     {list.items.map((i) => (
                         <tr key={i.id} onClick={() => setOpen(i.id)} style={{ cursor: 'pointer' }} data-testid={`row-${i.email}`}>
                             <td>{i.email}</td><td><Pill map={EDITION} k={i.edition} />{i.isUpgrade ? ' ↑' : ''}</td><td><Pill map={STATUS} k={i.accessStatus} /></td><td>{fmt(i.grantedAt)}</td>
-                            <td>{i.edition === 'companion' ? fmt(i.askSidExpiresAt) : '—'}</td><td>{i.launchPosition || '—'}</td>
+                            <td data-testid={`ends-${i.email}`}>{i.edition === 'companion' ? endLabel(i.askSidExpiresAt) : '—'}</td><td>{i.launchPosition || '—'}</td>
                             <td>{i.allowance ? `${i.allowance.daily_used}/${i.allowance.daily_limit} · ${i.allowance.total_remaining} left` : '—'}</td><td>{i.order ? `${i.order.order_number}${i.order.refund_status ? ` (${i.order.refund_status})` : ''}` : '—'}</td>
+                            <td>{can('customers.grant') && i.accessStatus !== 'revoked' && <button type="button" className="btn btn--danger btn--sm" data-testid={`revoke-${i.email}`} onClick={(e) => { e.stopPropagation(); setRevokeFor(i); }}>Revoke</button>}</td>
                         </tr>))}
-                    {list.items.length === 0 && <tr><td colSpan={8} style={{ textAlign: 'center', ...muted }}>No customers match.</td></tr>}
+                    {list.items.length === 0 && <tr><td colSpan={9} style={{ textAlign: 'center', ...muted }}>No customers match.</td></tr>}
                 </tbody></table></div>
                 <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 10 }}><button className="btn btn--outline btn--sm" disabled={page <= 1} onClick={() => setPage(page - 1)}>Previous</button><span style={muted}>Page {page} · {list.total} customers</span><button className="btn btn--outline btn--sm" disabled={page * 20 >= list.total} onClick={() => setPage(page + 1)}>Next</button></div>
             </>)}
@@ -231,6 +241,7 @@ export default function Entitlements() {
             {grantOpen && <GrantModal onClose={() => setGrantOpen(false)} onDone={() => { loadList(); loadOverview(); }} />}
             {importOpen && <ImportModal onClose={() => setImportOpen(false)} onDone={() => { loadList(); loadOverview(); }} />}
             {open && <Detail id={open} onClose={() => setOpen(null)} onChanged={() => { loadList(); loadOverview(); }} />}
+            {revokeFor && <ReasonModal title={`Revoke access for ${revokeFor.email}`} onCancel={() => setRevokeFor(null)} onSubmit={async ({ reason }) => { try { await entitlements.action(revokeFor.id, { action: 'revoke', reason }); toast.success('Access revoked'); setRevokeFor(null); loadList(); loadOverview(); } catch (e) { toast.error(errText(e)); } }} />}
             {launchAsk && <ReasonModal title="Open the launch offer" onCancel={() => setLaunchAsk(false)} onSubmit={async ({ reason }) => { try { await entitlements.openLaunch(reason); toast.success('Launch offer is open'); setLaunchAsk(false); loadOverview(); } catch (e) { toast.error(errText(e)); } }} />}
         </div>
     );

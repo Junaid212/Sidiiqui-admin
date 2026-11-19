@@ -526,3 +526,24 @@ test('G3. removing test orders: reason + safety copy first; orders that give acc
   assert.equal((await rm({ ids: [uuid(5000)], reason: 'does not exist' })).status, 404);
   assert.equal((await raw('POST', '/api/orders/remove', { body: {} })).status, 401); assert.equal((await raw('POST', '/api/orders/remove', { token: 'customer-token', body: {} })).status, 403);
 });
+
+test('G6. complimentary grant with NO END DATE: Ask SID access has no end, takes no launch position, is not a sale; "months" and "no end date" cannot be combined', async () => {
+  const g = (b) => api('POST', '/api/entitlements/grant', b);
+  const salesBefore = (await api('GET', '/api/stats/ebooks')).json.count; const posBefore = (await sql('select count(*)::int n from public.launch_allocations'))[0].n;
+  assert.equal((await g({ email: 'forever.reader@example.com', edition: 'companion', months: 12, noEnd: true, reason: 'a friend of the book' })).status, 400, 'months OR no end date');
+  const r = await g({ email: 'Forever.Reader@Example.com', edition: 'companion', noEnd: true, questions: 300, reason: 'a lifelong friend of the book' });
+  assert.equal(r.status, 201, JSON.stringify(r.json));
+  const e = (await api('GET', '/api/entitlements?q=forever.reader')).json.items[0];
+  const years = (new Date(e.askSidExpiresAt).getTime() - Date.now()) / (365.25 * 24 * 3600 * 1000);
+  assert.ok(years > 99 && years < 101, `the end date is about 100 years away, which the screens show as "No end date" (got ${years.toFixed(1)} years)`);
+  assert.equal(e.accessStatus, 'active'); assert.equal(e.launchPosition, null); assert.equal(e.allowance.total_limit, 300);
+  assert.equal((await sql('select count(*)::int n from public.launch_allocations'))[0].n, posBefore, 'no launch position taken');
+  assert.equal((await api('GET', '/api/stats/ebooks')).json.count, salesBefore, 'not a sale');
+  assert.equal((await api('GET', '/api/orders')).json.orders.find((o) => o.email === 'forever.reader@example.com').is_complimentary, true);
+  const a = await sql("select detail from public.admin_audit_log where action='entitlement.manual_grant' and detail->>'reason'='a lifelong friend of the book'");
+  assert.equal(a.length, 1); assert.equal(a[0].detail.noEnd, true);
+  // Online Reading has no end date anyway: the option is simply ignored for it
+  const on = await g({ email: 'forever.online@example.com', edition: 'online', noEnd: true, reason: 'reader copy for a reviewer' }); assert.equal(on.status, 201, JSON.stringify(on.json));
+  // a customer with that e-mail can be revoked at once
+  const rv = await api('POST', `/api/entitlements/${e.id}/action`, { action: 'revoke', reason: 'no longer needed' }); assert.equal(rv.status, 200);
+});

@@ -22,6 +22,27 @@ import AskSidSettings from './pages/AskSidSettings';
 import ReadingContent from './pages/ReadingContent';
 import Entitlements from './pages/Entitlements';
 import CompanionFiles from './pages/CompanionFiles';
+import Team from './pages/Team';
+import { ROUTE_PERMISSION, firstAllowedPath } from './utils/access';
+
+// A screen only for the roles that have its permission. Anyone else is sent to the first screen their role allows (the server refuses
+// the data anyway; this just stops them landing on a page full of "not allowed" messages).
+function Guard({ path, children }) {
+  const { can } = useAuth();
+  if (can(ROUTE_PERMISSION[path])) return children;
+  const home = firstAllowedPath(can);
+  return home && home !== path ? <Navigate to={home} replace /> : <AccessNothing />;
+}
+function AccessNothing() {
+  const { signOut, roleLabel } = useAuth();
+  return (
+    <div className="page" style={{ maxWidth: 560, margin: '60px auto', padding: 20, textAlign: 'center' }}>
+      <h2>Nothing to show</h2>
+      <p>Your role ({roleLabel || 'none'}) has no screens in this dashboard. Please ask the Owner.</p>
+      <button type="button" className="btn btn-secondary" onClick={() => signOut().catch(() => {})}>Sign out</button>
+    </div>
+  );
+}
 
 // Shown to a signed-in person who is not an administrator (e.g. a customer of the public site, which
 // shares this login system), or when the server could not confirm the role.
@@ -104,21 +125,22 @@ function App() {
 
           {/* Protected routes */}
           <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
-            <Route path="/" element={<Dashboard />} />
-            <Route path="/orders" element={<EbookOrders />} />
-            <Route path="/coupons" element={<Coupons />} />
-            <Route path="/products" element={<DigitalProducts />} />
-            <Route path="/course-interactions" element={<CourseClicks />} />
-            <Route path="/consultations" element={<Consultations />} />
-            <Route path="/blogs" element={<AdminBlogManagement />} />
-            <Route path="/blogs/:id/comments" element={<CommentManagement />} />
-            <Route path="/sign-ins" element={<SignIns />} />
-            <Route path="/contact-messages" element={<ContactMessages />} />
-            <Route path="/questionnaire" element={<QuestionnaireAnalytics />} />
-            <Route path="/ask-sid" element={<AskSidSettings />} />
-            <Route path="/reading" element={<ReadingContent />} />
-            <Route path="/customers-access" element={<Entitlements />} />
-            <Route path="/companion-files" element={<CompanionFiles />} />
+            <Route path="/" element={<Guard path="/"><Dashboard /></Guard>} />
+            <Route path="/orders" element={<Guard path="/orders"><EbookOrders /></Guard>} />
+            <Route path="/coupons" element={<Guard path="/coupons"><Coupons /></Guard>} />
+            <Route path="/products" element={<Guard path="/products"><DigitalProducts /></Guard>} />
+            <Route path="/course-interactions" element={<Guard path="/course-interactions"><CourseClicks /></Guard>} />
+            <Route path="/consultations" element={<Guard path="/consultations"><Consultations /></Guard>} />
+            <Route path="/blogs" element={<Guard path="/blogs"><AdminBlogManagement /></Guard>} />
+            <Route path="/blogs/:id/comments" element={<Guard path="/blogs"><CommentManagement /></Guard>} />
+            <Route path="/sign-ins" element={<Guard path="/sign-ins"><SignIns /></Guard>} />
+            <Route path="/contact-messages" element={<Guard path="/contact-messages"><ContactMessages /></Guard>} />
+            <Route path="/questionnaire" element={<Guard path="/questionnaire"><QuestionnaireAnalytics /></Guard>} />
+            <Route path="/ask-sid" element={<Guard path="/ask-sid"><AskSidSettings /></Guard>} />
+            <Route path="/reading" element={<Guard path="/reading"><ReadingContent /></Guard>} />
+            <Route path="/customers-access" element={<Guard path="/customers-access"><Entitlements /></Guard>} />
+            <Route path="/companion-files" element={<Guard path="/companion-files"><CompanionFiles /></Guard>} />
+            <Route path="/team" element={<Guard path="/team"><Team /></Guard>} />
           </Route>
 
           {/* Fallback */}

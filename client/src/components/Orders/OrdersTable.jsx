@@ -1,8 +1,11 @@
 import React from 'react';
 import { apiRequest } from '../../config/api';
 import toast from 'react-hot-toast';
+import { useAuth } from '../../context/AuthContext';
 
 export default function OrdersTable({ orders, onRefresh }) {
+    const { can } = useAuth();
+    const canRefund = can('orders.manage'); // Support can view orders; refunds are the Owner's
     const isEmpty = !orders || orders.length === 0;
 
     async function handleRefund(order) {
@@ -118,7 +121,7 @@ export default function OrdersTable({ orders, onRefresh }) {
                                         <span style={{ color: 'var(--text-secondary)' }}> / {order.download_limit || 3}</span>
                                     </td>
                                     <td>
-                                        {isPaid && !isRefunded && (
+                                        {canRefund && isPaid && !isRefunded && (
                                             <button
                                                 onClick={() => handleRefund(order)}
                                                 style={{
